@@ -1,0 +1,22 @@
+{
+    "$schema": "https://raw.githubusercontent.com/Cog-Creators/Red-DiscordBot/V3/develop/schema/red_cog.schema.json",
+    "name": "MovieClub",
+    "short": "A cog for scheduling and voting on movie nights.",
+    "description": "This cog allows users to vote on a date for movie night and the movie to watch. It uses Discord buttons for voting and can optionally use modals for entering movie information.",
+    "end_user_data_statement": "This cog does not persistently store any data or metadata about users.",
+    "install_msg": "Thanks for intalling the MovieClub cog! I hope it helps you connect with your friends.",
+    "author": [
+        "zr"
+    ],
+    "required_cogs": {},
+    "requirements": [],
+    "tags": [
+        "movie",
+        "club",
+        "voting"
+    ],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}
