@@ -9,7 +9,7 @@
         "zr"
     ],
     "required_cogs": {},
-    "requirements": [],
+    "requirements": ["holidays"],
     "tags": [
         "movie",
         "club",
