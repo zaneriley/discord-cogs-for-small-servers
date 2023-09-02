@@ -129,11 +129,23 @@ class DatePollButton(ui.Button):
         # Calculate the percentage of unique voters who are also members of the target_role
         percentage_voted = (len(unique_role_voters) / len(target_role_member_ids)) * 100  
 
-        # Change total_votes == 0 to len(unique_role_voters) == 0
+        # Calculate the percentage of unique voters who are also members of the target_role
+        percentage_voted = (len(unique_role_voters) / len(target_role_member_ids)) * 100  
+
+        # Fetching the original message and getting the embed from original message
+        original_message = await interaction.message.channel.fetch_message(interaction.message.id)
+        original_embed = original_message.embeds[0]
+        
         if len(unique_role_voters) == 0:
-            await interaction.message.edit(content=f"")
+            footer_text = ""
         else:
-            await interaction.message.edit(content=f"Update: {len(unique_role_voters)} has voted, {len(target_role_member_ids)} to go! ({percentage_voted:.2f}% participation)\n")
+            footer_text = f"{len(unique_role_voters)} movie club passholder voted, {len(target_role_member_ids) - len(unique_role_voters)} more to go! ({percentage_voted:.2f}% participation)"
+
+        # Setting the footer in the original_embed
+        original_embed.set_footer(text=footer_text, icon_url="https://cdn3.emoji.gg/emojis/1075-pinkhearts.gif")
+
+        # Now editing the embed with the original_embed
+        await interaction.message.edit(embed=original_embed)
 
         # Send an ephemeral message to the user
         voted_dates = [date for date in votes.keys() if user_id in date_user_votes.get(date, {})]
@@ -152,6 +164,7 @@ class DatePollButton(ui.Button):
                 joined_dates = 'None (SAD!)'
             vote_message = f"\u200B\n<:X_:1103627142425747567> Vote removed for `{date}`.\n\nAvailability:\n- {joined_dates}"
 
+        # Update the message with the new embed
         await interaction.followup.send(vote_message, ephemeral=True)
 
 class DatePollView(ui.View):
@@ -198,7 +211,7 @@ class MovieClub(commands.Cog):
     def __init__(self, bot: Red) -> None:
         self.bot = bot
         self.config = Config.get_conf(self, identifier=289198795625857026, force_registration=True)
-        self.config.register_global(date_votes={}, is_date_poll_active=False, date_user_votes={}, target_role=None, poll_message_id=None, poll_channel_id=None)
+        self.config.register_global(date_votes={}, is_date_poll_active=False, date_user_votes={}, date_buttons=[], target_role=None, poll_message_id=None, poll_channel_id=None)
         # Add a bot wait until ready guard if the bot hasn't fully connected
 
     async def red_delete_data_for_user(self, *, requester: RequestType, user_id: int) -> None:
@@ -239,6 +252,8 @@ class MovieClub(commands.Cog):
 
             # Parse month if provided, else use the current month.
             if month:
+                current_year = datetime.datetime.now().year
+
                 try:
                     month = datetime.datetime.strptime(month, "%B")
                 except ValueError:
@@ -247,6 +262,8 @@ class MovieClub(commands.Cog):
                     except ValueError:
                         await ctx.send('Invalid month. Please provide a full month name (e.g., "October") or a three-letter abbreviation (e.g., "Oct").')
                         return
+
+                month = month.replace(year=current_year)
                 logging.debug(f"Parsed month: {month}")  # Debug print
             else:
                 # If no month is provided, use the current month
@@ -282,6 +299,8 @@ class MovieClub(commands.Cog):
             # Code for creating and sending the poll 
             # Create an embed for the poll
             embed = Embed(title=f"{MOVIE_CLUB_LOGO}\n\n", description="Vote for the date of the next movie night!")
+            embed.add_field(name="Showtimes", value="6pm Pacific ∙ 7pm High Peak ∙ 8pm Heartland ∙ 9pm Eastern ∙ 10am 東京", inline=False)
+
 
             # Create a view with buttons for each date
             view = DatePollView(dates, self.config)
@@ -295,6 +314,10 @@ class MovieClub(commands.Cog):
 
             # Set the poll as active
             await self.config.is_date_poll_active.set(True)
+            
+            # new lines for storing the date buttons
+            date_strings = [date.strftime("%a, %b %d") for date in dates]
+            await self.config.date_buttons.set(date_strings)
 
         elif action == "end":
             # Initialize the variable before the if-else block
@@ -397,13 +420,11 @@ class MovieClub(commands.Cog):
                 date_votes_dict = await self.config.date_votes()
                 date_votes = {datetime.datetime.strptime(date_string, "%a, %b %d"): vote for date_string, vote in date_votes_dict.items()}
 
-                # Here you convert the votes back into your required format, such as dates or options if needed
+                # Get the stored date buttons
+                date_strings = await self.config.date_buttons()
+                dates = [datetime.datetime.strptime(date_string, "%a, %b %d") for date_string in date_strings]
+                view = DatePollView(dates, self.config)
 
-                # Create a new View with buttons
-                view = DatePollView(date_votes, self.config)
-
-                # Edit the original poll message with the new View
                 await poll_message.edit(view=view)
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                # If the message or channel is not found, or the bot doesn't have the required permissions, handle the exceptions here
                 logging.error("Could not restore the poll")
