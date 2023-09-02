@@ -1,7 +1,7 @@
 # Standard library imports
 import calendar
 import datetime
-from datetime import date
+from datetime import date, datetime
 import logging
 from typing import Literal
 from collections import defaultdict
@@ -198,11 +198,17 @@ class MovieClub(commands.Cog):
     def __init__(self, bot: Red) -> None:
         self.bot = bot
         self.config = Config.get_conf(self, identifier=289198795625857026, force_registration=True)
-        self.config.register_global(date_votes={}, is_date_poll_active=False, date_user_votes={}, target_role=None)
-        self.is_date_poll_active = False
+        self.config.register_global(date_votes={}, is_date_poll_active=False, date_user_votes={}, target_role=None, poll_message_id=None, poll_channel_id=None)
+        # Add a bot wait until ready guard if the bot hasn't fully connected
+
 
     async def red_delete_data_for_user(self, *, requester: RequestType, user_id: int) -> None:
         super().red_delete_data_for_user(requester=requester, user_id=user_id)
+    
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Restores the poll if the bot restarts while the poll is active."""
+        await self.restore_polls()
 
     @commands.group()
     async def movieclub(self, ctx):
@@ -273,7 +279,11 @@ class MovieClub(commands.Cog):
             view = DatePollView(dates, self.config)
 
             # Send the embed with the view
-            await ctx.send(embed=embed, view=view)
+            msg = await ctx.send(embed=embed, view=view)
+
+            # Save the poll message id and channel id into the bot config
+            await self.config.poll_message_id.set(msg.id)
+            await self.config.poll_channel_id.set(msg.channel.id)
 
             # Set the poll as active
             await self.config.is_date_poll_active.set(True)
@@ -344,3 +354,34 @@ class MovieClub(commands.Cog):
         """Sets the role for which to count the total members in polls. Default is @everyone."""
         await self.config.target_role.set(role.id)
         await ctx.send(f"The role for total member count in polls has been set to {role.name}.")
+
+    async def restore_polls(self):
+        """Restores the poll if the bot restarts while the poll is active."""
+        is_date_poll_active = await self.config.is_date_poll_active()
+        if is_date_poll_active:
+            try:
+                # Get the stored message and channel IDs
+                message_id = await self.config.poll_message_id()
+                channel_id = await self.config.poll_channel_id()
+
+                # Get the poll channel and message
+                poll_channel = self.bot.get_channel(channel_id)
+                logging.debug(f"Restoring poll channel: {poll_channel}, ID: {channel_id}")
+                if poll_channel is None:
+                    logging.error(f"Couldn't fetch channel ID: {channel_id} during poll restoration.")
+                    return
+
+                poll_message = await poll_channel.fetch_message(message_id)
+
+                # Get the stored votes
+                date_votes_dict = await self.config.date_votes()
+                date_votes = {datetime.strptime(date_string, "%a, %b %d"): vote for date_string, vote in date_votes_dict.items()}
+
+                # Create a new View with buttons
+                view = DatePollView(date_votes, self.config)
+
+                # Edit the original poll message with the new View
+                await poll_message.edit(view=view)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                # If the message or channel is not found, or the bot doesn't have the required permissions, handle the exceptions here
+                logging.error("Could not restore the poll")
