@@ -1,7 +1,7 @@
 # Standard library imports
 import calendar
 import datetime
-from datetime import date, datetime
+from datetime import date
 import logging
 from typing import Literal
 from collections import defaultdict
@@ -54,7 +54,7 @@ class DatePollButton(ui.Button):
         # let Discord know we received the interaction so it doesn't time us out
         # in case it takes a while to respond for some reason
         await interaction.response.defer()
-
+        
         date = self.date.strftime("%a, %b %d")  # Get the date from the button label
         # Convert the user ID to a string
         # Otherwise, the user ID will be converted to an int, which will cause issues when we try to use it as a key in a dict
@@ -133,7 +133,7 @@ class DatePollButton(ui.Button):
         if len(unique_role_voters) == 0:
             await interaction.message.edit(content=f"")
         else:
-            await interaction.message.edit(content=f"Update: {len(unique_role_voters)} out of {len(target_role_member_ids)} have voted ({percentage_voted:.2f}%)")
+            await interaction.message.edit(content=f"Update: {len(unique_role_voters)} has voted, {len(target_role_member_ids)} to go! ({percentage_voted:.2f}% participation)\n")
 
         # Send an ephemeral message to the user
         voted_dates = [date for date in votes.keys() if user_id in date_user_votes.get(date, {})]
@@ -201,7 +201,6 @@ class MovieClub(commands.Cog):
         self.config.register_global(date_votes={}, is_date_poll_active=False, date_user_votes={}, target_role=None, poll_message_id=None, poll_channel_id=None)
         # Add a bot wait until ready guard if the bot hasn't fully connected
 
-
     async def red_delete_data_for_user(self, *, requester: RequestType, user_id: int) -> None:
         super().red_delete_data_for_user(requester=requester, user_id=user_id)
     
@@ -211,6 +210,7 @@ class MovieClub(commands.Cog):
         await self.restore_polls()
 
     @commands.group()
+    @commands.bot_has_permissions(send_messages=True)
     async def movieclub(self, ctx):
         if ctx.invoked_subcommand is None:
             await ctx.send('Invalid Movie Club command passed...')
@@ -218,11 +218,19 @@ class MovieClub(commands.Cog):
     @movieclub.group()
     async def poll(self, ctx):
         if ctx.invoked_subcommand is None:
-            await ctx.send('Invalid poll command passed TEST!!!..')
+            # Check for required permissions
+            permissions = ctx.channel.permissions_for(ctx.guild.me)
+            if not permissions.send_messages:
+                await ctx.author.send('I do not have permissions to send messages in the channel.')
+            else:
+                await ctx.send('Invalid poll command passed TEST!!!..')
 
+    @commands.guild_only()  # type:ignore
+    @commands.bot_has_permissions(embed_links=True)
+    @commands.mod_or_permissions(manage_messages=True)
     @poll.command()
     async def date(self, ctx, action: str, month: str = None):
-        """Start or end date poll"""
+        """Start or end a date poll to choose the next movie night date."""
         if action == "start":
             is_date_poll_active = await self.config.is_date_poll_active()
             if is_date_poll_active:
@@ -315,7 +323,7 @@ class MovieClub(commands.Cog):
                 for most_voted_date in most_voted_dates:
                     user_votes = date_user_votes.get(most_voted_date, {})
                     user_ids = ', '.join(f'<@{user_id}>' for user_id in user_votes.keys())
-                    tie_message += f'**{most_voted_date}**\nPeople available: {user_ids}\n\n'
+                    tie_message += f'**{most_voted_date}**\nAvailable: {user_ids}\n\n'
 
                 await ctx.send(tie_message)
 
@@ -327,6 +335,9 @@ class MovieClub(commands.Cog):
         else:
             await ctx.send('Invalid action. Use "start" or "end".')
 
+    @commands.guild_only()  # type:ignore
+    @commands.bot_has_permissions(embed_links=True)
+    @commands.mod_or_permissions(manage_messages=True)
     @movieclub.command()
     async def movie(self, ctx, action: str, movie_info: str = None):
         if action == "add":
@@ -338,6 +349,9 @@ class MovieClub(commands.Cog):
         else:
             await ctx.send('Invalid action. Use "add" or "remove".')
 
+    @commands.guild_only()  # type:ignore
+    @commands.bot_has_permissions(embed_links=True)
+    @commands.mod_or_permissions(manage_messages=True)
     @poll.command()
     async def movie(self, ctx, action: str):
         if action == "start":
@@ -348,13 +362,19 @@ class MovieClub(commands.Cog):
             pass
         else:
             await ctx.send('Invalid action. Use "start" or "end".')
-    
+
+    @commands.guild_only()  # type:ignore
+    @commands.bot_has_permissions(embed_links=True)
+    @commands.mod_or_permissions(manage_messages=True)
     @movieclub.command(name='setrole')
     async def set_target_role(self, ctx, role: discord.Role):
         """Sets the role for which to count the total members in polls. Default is @everyone."""
         await self.config.target_role.set(role.id)
         await ctx.send(f"The role for total member count in polls has been set to {role.name}.")
 
+    @commands.guild_only()  # type:ignore
+    @commands.bot_has_permissions(embed_links=True)
+    @commands.mod_or_permissions(manage_messages=True)
     async def restore_polls(self):
         """Restores the poll if the bot restarts while the poll is active."""
         is_date_poll_active = await self.config.is_date_poll_active()
@@ -375,7 +395,9 @@ class MovieClub(commands.Cog):
 
                 # Get the stored votes
                 date_votes_dict = await self.config.date_votes()
-                date_votes = {datetime.strptime(date_string, "%a, %b %d"): vote for date_string, vote in date_votes_dict.items()}
+                date_votes = {datetime.datetime.strptime(date_string, "%a, %b %d"): vote for date_string, vote in date_votes_dict.items()}
+
+                # Here you convert the votes back into your required format, such as dates or options if needed
 
                 # Create a new View with buttons
                 view = DatePollView(date_votes, self.config)
