@@ -1,7 +1,7 @@
 # Standard library imports
 import calendar
 import datetime
-from datetime import date
+from datetime import date, timedelta
 import logging
 from typing import Literal
 from collections import defaultdict
@@ -10,6 +10,8 @@ from collections import defaultdict
 from dateutil.relativedelta import relativedelta, SU  # Import SU (Sunday)
 import discord
 from discord import ui, Embed, Button, ButtonStyle, ActionRow
+from discord.ext import tasks
+from discord.errors import NotFound, Forbidden, HTTPException
 import holidays
 from holidays.countries.united_states import UnitedStates
 
@@ -22,6 +24,41 @@ logging.basicConfig(level=logging.DEBUG)
 
 MOVIE_CLUB_LOGO = '<:movieclub:1066636399530479696>\u2007<:logomovieclub1:1089715872551141416><:logomovieclub2:1089715916385820772><:logomovieclub3:1089715950225469450> <:logomovieclub4:1089715994743812157><:logomovieclub5:1089716031095832636><:logomovieclub6:1089716070497124502>'
 
+def first_weekday_after_days(weekday, date, days=14, holiday_list=None):
+    """
+    Returns the first weekday after a given number of days from the input date,
+    skipping any holidays.
+    """
+    logging.debug(f"Input date in first_weekday_after_days: {date}")
+    
+    # Calculate the date 14 days from the input date
+    future_date = date + timedelta(days=days)
+    
+    # Start iterating from the future_date to find the next available weekday
+    while True:
+        # Calculate the weekday of the future_date
+        diff = weekday - future_date.weekday()
+        offset = diff if diff >= 0 else diff + 7
+        first_date = future_date + timedelta(days=offset)
+        
+        logging.debug(f"Calculated first_date in first_weekday_after_days: {first_date}")
+        
+        # Check if first_date is still within the same month as the input date
+        if first_date.month != date.month:
+            logging.debug(f"first_date {first_date} is not in the same month as input date {date}. Returning None.")
+            return None
+        
+        # Check for holidays
+        if holiday_list and (first_date in holiday_list or 
+                             first_date - timedelta(days=1) in holiday_list or 
+                             first_date + timedelta(days=1) in holiday_list):
+            logging.debug(f"first_date {first_date} is a holiday or near a holiday. Skipping.")
+            # Move to the next day and continue the loop
+            future_date = first_date + timedelta(days=1)
+            continue
+        
+        return first_date
+
 def last_weekday_of_month(year, month, weekday):
     """Find the last occurrence of a weekday in a given month."""
     _, last_day = calendar.monthrange(year, month)
@@ -30,25 +67,35 @@ def last_weekday_of_month(year, month, weekday):
     last_date = last_date - datetime.timedelta(days=offset)
     return last_date
 
-def last_weekday(weekday, month):
+def last_weekday(weekday, date):
     """
     Returns the last weekday of the month.
     """
-    logging.debug(f"Month in last_weekday: {month}")  # Debug print
-
-    # Get the last day of the specified month
-    next_month = month + relativedelta(months=1)
-
+    logging.debug(f"Input date in last_weekday: {date}")
+    next_month = date + relativedelta(months=1)
     last_day_of_month = next_month - datetime.timedelta(days=1)
     diff = last_day_of_month.weekday() - weekday
     offset = diff if diff >= 0 else diff + 7
-    return last_day_of_month - datetime.timedelta(days=offset)
+    last_date = last_day_of_month - datetime.timedelta(days=offset)
+    
+    logging.debug(f"Calculated last_date in last_weekday: {last_date}")
+
+    if (last_date - date).days <= 14:
+        logging.debug(f"last_date {last_date} is within 14 days from input date {date}. Returning None.")
+        return None      
+
+    return last_date
+
 
 class DatePollButton(ui.Button):
     def __init__(self, label, date, config):
         super().__init__(style=ButtonStyle.primary, label=label)
         self.date = date
         self.config = config
+        # Show only date without year to user
+        self.date = datetime.datetime.strptime(self.date, "%Y-%m-%d")
+        self.label = self.date.strftime("%a, %b %d")
+        
 
     async def callback(self, interaction: discord.Interaction):
         # let Discord know we received the interaction so it doesn't time us out
@@ -61,14 +108,13 @@ class DatePollButton(ui.Button):
         # Users won't be able to undo their votes if this happens
         user_id = str(interaction.user.id)  
 
+        votes = defaultdict(int, await self.config.date_votes())
+        date_user_votes = defaultdict(dict, await self.config.date_user_votes())
+        date_votes = defaultdict(bool, date_user_votes[self.date])
+
         # Debug log: Initial user_id type
         logging.debug(f"user_id initial type: {type(user_id)}")  
 
-        # Initialize defaultdicts
-        votes = defaultdict(int, await self.config.date_votes())  
-        date_user_votes = defaultdict(dict, await self.config.date_user_votes())
-        date_votes = defaultdict(bool, date_user_votes[date])  
-        
         # Debug logs: Before updating votes and date_user_votes
         logging.debug(f"BEFORE update: votes={votes} typeofkeys={type(list(votes.keys())[0]) if votes else None}, dateVotes={date_votes} typeofkeys={type(list(date_votes.keys())[0]) if date_votes else None}")
 
@@ -151,14 +197,15 @@ class DatePollButton(ui.Button):
         voted_dates = [date for date in votes.keys() if user_id in date_user_votes.get(date, {})]
 
         if user_id in date_votes:
-            # User voted, list of new dates.
-            sorted_dates = sorted(voted_dates)
+            # Convert strings to date objects, sort, and then convert back to strings
+            sorted_dates = sorted(voted_dates, key=lambda x: datetime.datetime.strptime(x, '%a, %b %d'))
             joined_dates = '\n- '.join(sorted_dates)
             vote_message = f"\u200B\n<:check:1103626473266479154> Voted for `{date}`. \n\nAvailability:\n- {joined_dates}"
         else:
         # User vote's removed, current list of dates.
             if voted_dates:
-                sorted_dates = sorted(voted_dates)
+                # Convert strings to date objects, sort, and then convert back to strings
+                sorted_dates = sorted(voted_dates, key=lambda x: datetime.datetime.strptime(x, '%a, %b %d'))
                 joined_dates = '\n- '.join(sorted_dates)
             else:
                 joined_dates = 'None (SAD!)'
@@ -171,7 +218,7 @@ class DatePollView(ui.View):
     def __init__(self, dates, config):
         super().__init__()
         for date in dates:
-            self.add_item(DatePollButton(date.strftime("%a, %b %d"), date, config))
+            self.add_item(DatePollButton(date.strftime("%a, %b %d"), date.strftime("%Y-%m-%d"), config))
 
 RequestType = Literal["discord_deleted_user", "owner", "user", "user_strict"]
 
@@ -180,7 +227,7 @@ class CustomHolidays(UnitedStates):
         # Populate the holiday list with the default US holidays
         super()._populate(year)
 
- # Add Halloween
+        # Add Halloween
         self[date(year, 10, 31)] = "Halloween"
         
         # Add Christmas Eve
@@ -202,6 +249,10 @@ class CustomHolidays(UnitedStates):
         fathers_day = june_first + relativedelta(weekday=SU(3))  # Advance to the third Sunday
         self[fathers_day] = "Father's Day"
 
+        # TODO: add parameter that marks the day before and after a holiday as unavailable or not
+        # Add insanely good day
+        self[date(year, 9, 21)] = "September 21st"
+
         # Add Thanksgiving Eve (Day before Thanksgiving)
         thanksgiving = [k for k, v in self.items() if "Thanksgiving" in v][0]  # Find the date of Thanksgiving
         thanksgiving_eve = thanksgiving - relativedelta(days=1)  # Calculate Thanksgiving Eve
@@ -220,7 +271,13 @@ class MovieClub(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         """Restores the poll if the bot restarts while the poll is active."""
-        await self.restore_polls()
+        try:
+            logging.debug("Starting on_ready listener...")
+            self.refresh_poll_buttons.start()
+            await self.restore_polls()
+            logging.debug("Ending on_ready listener...")
+        except Exception as e:
+            logging.error(f"Unhandled exception in on_ready: {e}")
 
     @commands.group()
     @commands.bot_has_permissions(send_messages=True)
@@ -250,10 +307,11 @@ class MovieClub(commands.Cog):
                 await ctx.send('A date poll is already active.')
                 return
 
+
             # Parse month if provided, else use the current month.
             if month:
                 current_year = datetime.datetime.now().year
-
+                    
                 try:
                     month = datetime.datetime.strptime(month, "%B")
                 except ValueError:
@@ -278,20 +336,23 @@ class MovieClub(commands.Cog):
                 if (last_monday.date() - datetime.date.today()).days <= 14:
                     month = month + relativedelta(months=1)
 
+            us_holidays = CustomHolidays(years=month.year)
+
             # Calculate the last Monday, Wednesday, Thursday, and Friday of the month
             # These dates are abritrary for our server, but can be changed to suit your needs
-            last_monday = last_weekday(0, month)        # For Monday
-            last_wednesday = last_weekday(2, month)     # For Wednesday
-            last_thursday = last_weekday(3, month)      # For Thursday
-            last_friday = last_weekday(4, month)        # For Friday
-            last_saturday = last_weekday(5, month)      # For Saturday
+            # TODO: fix this bad redundancy
+            last_monday = first_weekday_after_days(0, month.date(), days=14, holiday_list=us_holidays)
+            last_wednesday = first_weekday_after_days(2, month.date(), days=14, holiday_list=us_holidays)
+            last_thursday = first_weekday_after_days(3, month.date(), days=14, holiday_list=us_holidays)
+            last_friday = first_weekday_after_days(4, month.date(), days=14, holiday_list=us_holidays)
+            last_saturday = first_weekday_after_days(5, month.date(), days=14, holiday_list=us_holidays)
 
             # Filter out dates that are public holidays.
             # Also avoid the days immediately before and after holidays.
             # This is to maximize the likelihood that people are available.
-            us_holidays = CustomHolidays(years=month.year)
-            dates = [last_monday, last_wednesday, last_thursday, last_friday, last_saturday]
-            dates = [date for date in dates if date not in us_holidays and date - datetime.timedelta(days=1) not in us_holidays and date + datetime.timedelta(days=1) not in us_holidays]
+            
+            dates = [date for date in [last_monday, last_wednesday, last_thursday, last_friday, last_saturday] if date is not None]
+            # dates = [date for date in dates if date not in us_holidays and date - datetime.timedelta(days=1) not in us_holidays and date + datetime.timedelta(days=1) not in us_holidays]
 
             # Sort the dates so the buttons are in chronological order
             dates.sort()
@@ -316,8 +377,9 @@ class MovieClub(commands.Cog):
             await self.config.is_date_poll_active.set(True)
             
             # new lines for storing the date buttons
-            date_strings = [date.strftime("%a, %b %d") for date in dates]
+            date_strings = [date.strftime("%a, %b %d, %Y") for date in dates]
             await self.config.date_buttons.set(date_strings)
+
 
         elif action == "end":
             # Initialize the variable before the if-else block
@@ -354,7 +416,7 @@ class MovieClub(commands.Cog):
             await self.config.date_votes.set({})
             await self.config.date_user_votes.set({})
             await self.config.is_date_poll_active.set(False)
-
+            
         else:
             await ctx.send('Invalid action. Use "start" or "end".')
 
@@ -385,6 +447,40 @@ class MovieClub(commands.Cog):
             pass
         else:
             await ctx.send('Invalid action. Use "start" or "end".')
+
+    @tasks.loop(minutes=3)
+    async def refresh_poll_buttons(self):
+        """Background task to refresh poll buttons."""
+        logging.debug("Starting refresh buttons task...")
+        is_date_poll_active = await self.config.is_date_poll_active()
+        
+        if is_date_poll_active:
+            logging.debug("Refreshing buttons...")
+            channel_id = await self.config.poll_channel_id()
+            message_id = await self.config.poll_message_id()
+            channel = self.bot.get_channel(channel_id)
+            
+            try:
+                logging.debug("Fetch message...")
+                message = await channel.fetch_message(message_id)
+                logging.debug("Message fetched.")
+                date_strings = await self.config.date_buttons()
+                dates = [datetime.datetime.strptime(date_string, "%a, %b %d, %Y") for date_string in date_strings]
+                view = DatePollView(dates, self.config)
+                logging.debug("Editing message...")
+                message = await channel.fetch_message(message_id)
+                await message.edit(view=view)
+                logging.debug("Message edited.")
+            except discord.HTTPException:
+                logging.debug("Unable to edit the message.")
+                await self.config.is_date_poll_active.set(False)
+                logging.debug("Date poll activity set to False.")
+                
+        logging.debug("Ending refresh buttons task...")
+            
+    @refresh_poll_buttons.before_loop
+    async def before_refresh_buttons(self):
+        await self.bot.wait_until_ready()
 
     @commands.guild_only()  # type:ignore
     @commands.bot_has_permissions(embed_links=True)
@@ -422,7 +518,7 @@ class MovieClub(commands.Cog):
 
                 # Get the stored date buttons
                 date_strings = await self.config.date_buttons()
-                dates = [datetime.datetime.strptime(date_string, "%a, %b %d") for date_string in date_strings]
+                dates = [datetime.datetime.strptime(date_string, "%a, %b %d, %Y") for date_string in date_strings]
                 view = DatePollView(dates, self.config)
 
                 await poll_message.edit(view=view)
