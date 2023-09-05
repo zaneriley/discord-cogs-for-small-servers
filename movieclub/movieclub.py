@@ -3,7 +3,7 @@ import calendar
 import datetime
 from datetime import date, timedelta
 import logging
-from typing import Literal
+from typing import Literal, List
 from collections import defaultdict
 
 # Third-party library imports
@@ -24,6 +24,57 @@ logging.basicConfig(level=logging.DEBUG)
 
 MOVIE_CLUB_LOGO = '<:movieclub:1066636399530479696>\u2007<:logomovieclub1:1089715872551141416><:logomovieclub2:1089715916385820772><:logomovieclub3:1089715950225469450> <:logomovieclub4:1089715994743812157><:logomovieclub5:1089716031095832636><:logomovieclub6:1089716070497124502>'
 
+class DateUtil:
+
+    @staticmethod
+    def normalize_date(date: datetime.datetime) -> datetime.datetime:
+        """Returns a date with the time set to 00:00:00 for consistent comparison"""
+        return datetime.datetime.combine(date.date(), datetime.datetime.min.time())
+
+    @staticmethod
+    def get_presentable_date(date: datetime.datetime) -> str:
+        """Returns a date string in the format 'Mon, Sept 18'"""
+        return date.strftime('%a, %b %d')
+
+    @staticmethod
+    def add_days(date: datetime, days: int) -> datetime:
+        """Returns the date after adding the specified number of days"""
+        return date + datetime.timedelta(days=days)
+
+    @staticmethod
+    def subtract_days(date: datetime, days: int) -> datetime:
+        """Returns the date after subtracting the specified number of days"""
+        return date - datetime.timedelta(days=days)
+    
+    @staticmethod
+    def sort_dates(dates: List[datetime.datetime]) -> List[datetime.datetime]:
+        """Sorts and returns a list of datetime objects"""
+        return sorted(dates)
+    
+    @staticmethod
+    def now() -> datetime:
+        """Returns current date with normalized time"""
+        return DateUtil.normalize_date(datetime.datetime.now())
+        
+    @staticmethod
+    def get_year_month(month: str, year: int = None) -> datetime:
+        """Returns a datetime object in the format '%B' or '%b'"""
+        year = year if year else DateUtil.now().year
+        try:
+            return datetime.datetime.strptime(month, "%B").replace(year=year)
+        except ValueError:
+            return datetime.datetime.strptime(month, "%b").replace(year=year)
+
+    @staticmethod
+    def is_within_days(date1: datetime, date2: datetime, days: int) -> bool:
+        """Returns true if the difference between date1 and date2 is within the given number of days"""
+        return (date1.date() - date2.date()).days <= days
+
+    @staticmethod
+    def to_next_month(date: datetime) -> datetime:
+        """Returns the same date in the next month"""
+        return date + relativedelta(months=1)
+    
 def first_weekday_after_days(weekday, date, days=14, holiday_list=None):
     """
     Returns the first weekday after a given number of days from the input date,
@@ -88,104 +139,78 @@ def last_weekday(weekday, date):
 
 
 class DatePollButton(ui.Button):
-    def __init__(self, label, date, config):
-        super().__init__(style=ButtonStyle.primary, label=label)
-        self.date = date
+    def __init__(self, date: datetime, config):
+        super().__init__(style=ButtonStyle.primary, label=DateUtil.get_presentable_date(date))
+        self.date = DateUtil.normalize_date(date)
         self.config = config
-        # Show only date without year to user
-        self.date = datetime.datetime.strptime(self.date, "%Y-%m-%d")
-        self.label = self.date.strftime("%a, %b %d")
         
-
     async def callback(self, interaction: discord.Interaction):
         # let Discord know we received the interaction so it doesn't time us out
         # in case it takes a while to respond for some reason
         await interaction.response.defer()
-        
-        date = self.date.strftime("%a, %b %d")  # Get the date from the button label
-        # Convert the user ID to a string
-        # Otherwise, the user ID will be converted to an int, which will cause issues when we try to use it as a key in a dict
-        # Users won't be able to undo their votes if this happens
+        date_str = DateUtil.get_presentable_date(self.date)  # Convert datetime to string for display
         user_id = str(interaction.user.id)  
 
+        logging.debug(f"Fetching current votes and user votes")
         votes = defaultdict(int, await self.config.date_votes())
         date_user_votes = defaultdict(dict, await self.config.date_user_votes())
-        date_votes = defaultdict(bool, date_user_votes[self.date])
+        logging.debug(f"Fetched votes: {votes} and user votes: {date_user_votes}")
+        date_key = self.date.strftime("%Y-%m-%d")  # Convert datetime to string for a dictionary key
+        date_votes = defaultdict(bool, date_user_votes[date_key])
 
-        # Debug log: Initial user_id type
         logging.debug(f"user_id initial type: {type(user_id)}")  
-
-        # Debug logs: Before updating votes and date_user_votes
-        logging.debug(f"BEFORE update: votes={votes} typeofkeys={type(list(votes.keys())[0]) if votes else None}, dateVotes={date_votes} typeofkeys={type(list(date_votes.keys())[0]) if date_votes else None}")
+        logging.debug(f"BEFORE update: votes={votes}, dateVotes={date_votes}")
 
         if user_id in date_votes:
-            # Toggle off vote
-            votes[date] -= 1
-            if votes[date] == 0:  # if no votes are left for this date
-                votes.pop(date)  # remove this date from votes
+            logging.debug(f"User {user_id} already voted for {date_str}. Toggle vote off.")
+            votes[date_key] -= 1
+            if votes[date_key] == 0:  
+                votes.pop(date_key)  
             del date_votes[user_id]
         else:
-            # Toggle on vote
-            votes[date] += 1
+            logging.debug(f"User {user_id} not found in votes for {date_str}. Toggle vote on.")
+            votes[date_key] += 1
             date_votes[user_id] = True
+        date_user_votes[date_key] = dict(date_votes)  
 
         # Update config
-        date_user_votes[date] = dict(date_votes)  
+        logging.debug(f"Updating votes and user votes")
         await self.config.date_user_votes.set(dict(date_user_votes))  
-        await self.config.date_votes.set(dict(votes))  
-
-        # Debug logs: After updating votes and date_user_votes 
-        logging.debug(f"AFTER update: votes={votes} typeofkeys={type(list(votes.keys())[0]) if votes else None}, dateVotes={date_votes} typeofkeys={type(list(date_votes.keys())[0]) if date_votes else None}")
+        await self.config.date_votes.set(dict(votes))
+        logging.debug(f"Updated votes: {votes} and user votes: {date_user_votes}")
+        logging.debug(f"AFTER update: votes={votes}, dateVotes={date_votes}")
 
         logging.debug(f"Votes: {votes}")
         logging.debug(f"Users that voted for above date: {date_votes}")
+        self.label = f"{date_str} ({votes[date_key]})"  # Show the votes for the updated date
 
-        # Updating the discord UI so users know what's happening
-        # Update the button label with the vote count
-        self.label = f"{date} ({votes[date]})"
-
-        # Update the original message with the total unique vote count out of total members of role or server
-        vote_owners = set()
-        for owners in date_user_votes.values():
-            vote_owners.update(owners.keys())
-
-        # Initialize the set of unique voters
-        unique_voters = set()
-
-        # Look through each user vote list to find unique vote owners
+        unique_voters = set()  
         for user_vote_list in date_user_votes.values():
             unique_voters.update(user_vote_list.keys())
-
         logging.debug(f"Unique voters: {unique_voters}")
 
-        # Check if voters are members of target_role by comparing voter's ids with role members' ids
         target_role_id = await self.config.target_role()  
         if target_role_id:
             target_role = discord.utils.get(interaction.guild.roles, id=target_role_id)
-            target_role_member_ids = {str(member.id) for member in target_role.members} if target_role else {str(member.id) for member in interaction.guild.members}
+            target_role_member_ids = set(str(member.id) for member in target_role.members) if target_role else {interaction.guild.members}
         else:
-            target_role_member_ids = {str(member.id) for member in interaction.guild.members}
-
+            target_role_member_ids = set(member.id for member in interaction.guild.members)
         logging.debug(f"Target role member IDs: {target_role_member_ids}")
 
-        unique_role_voters = unique_voters.intersection(target_role_member_ids)
-
+        unique_role_voters = unique_voters.intersection(target_role_member_ids)  # Calculate the voters in the target role
         logging.debug(f"Unique role voters: {unique_role_voters}")
 
-        # Calculate the percentage of unique voters who are also members of the target_role
         percentage_voted = (len(unique_role_voters) / len(target_role_member_ids)) * 100  
-
-        # Calculate the percentage of unique voters who are also members of the target_role
-        percentage_voted = (len(unique_role_voters) / len(target_role_member_ids)) * 100  
-
-        # Fetching the original message and getting the embed from original message
         original_message = await interaction.message.channel.fetch_message(interaction.message.id)
         original_embed = original_message.embeds[0]
         
         if len(unique_role_voters) == 0:
             footer_text = ""
         else:
-            footer_text = f"{len(unique_role_voters)} movie club passholder voted, {len(target_role_member_ids) - len(unique_role_voters)} more to go! ({percentage_voted:.2f}% participation)"
+            voter_count = len(unique_role_voters)
+            more_to_go = len(target_role_member_ids) - len(unique_role_voters)
+            passholder_text = "passholder" if voter_count == 1 else "passholders"
+            footer_text = f"{voter_count} movie club {passholder_text} voted, {more_to_go} more to go! ({percentage_voted:.2f}% participation)"
 
         # Setting the footer in the original_embed
         original_embed.set_footer(text=footer_text, icon_url="https://cdn3.emoji.gg/emojis/1075-pinkhearts.gif")
@@ -196,20 +221,25 @@ class DatePollButton(ui.Button):
         # Send an ephemeral message to the user
         voted_dates = [date for date in votes.keys() if user_id in date_user_votes.get(date, {})]
 
-        if user_id in date_votes:
-            # Convert strings to date objects, sort, and then convert back to strings
-            sorted_dates = sorted(voted_dates, key=lambda x: datetime.datetime.strptime(x, '%a, %b %d'))
-            joined_dates = '\n- '.join(sorted_dates)
-            vote_message = f"\u200B\n<:check:1103626473266479154> Voted for `{date}`. \n\nAvailability:\n- {joined_dates}"
+        def get_sorted_presentable_dates(dates):
+            datetime_dates = [datetime.datetime.strptime(date, '%Y-%m-%d') for date in dates] # Convert stringified dates back to datetime
+            sorted_dates = DateUtil.sort_dates(datetime_dates) # Adjust this function to accept datetime formats
+            return '\n- '.join(DateUtil.get_presentable_date(date) for date in sorted_dates)
+
+        # The part of the code where you check and format the dates
+        if voted_dates:
+            joined_dates = get_sorted_presentable_dates(voted_dates)
         else:
-        # User vote's removed, current list of dates.
-            if voted_dates:
-                # Convert strings to date objects, sort, and then convert back to strings
-                sorted_dates = sorted(voted_dates, key=lambda x: datetime.datetime.strptime(x, '%a, %b %d'))
-                joined_dates = '\n- '.join(sorted_dates)
-            else:
-                joined_dates = 'None (SAD!)'
-            vote_message = f"\u200B\n<:X_:1103627142425747567> Vote removed for `{date}`.\n\nAvailability:\n- {joined_dates}"
+            joined_dates = 'None (SAD!)'
+
+        if user_id in date_votes:
+            vote_icon = "<:check:1103626473266479154>"
+            action_message = f"Voted for `{date_str}`"
+        else:
+            vote_icon = "<:X_:1103627142425747567>"
+            action_message = f"Vote removed for `{date_str}`"
+
+        vote_message = f"\u200B\n{vote_icon} {action_message}. \n\nAvailability:\n- {joined_dates}"
 
         # Update the message with the new embed
         await interaction.followup.send(vote_message, ephemeral=True)
@@ -218,7 +248,7 @@ class DatePollView(ui.View):
     def __init__(self, dates, config):
         super().__init__()
         for date in dates:
-            self.add_item(DatePollButton(date.strftime("%a, %b %d"), date.strftime("%Y-%m-%d"), config))
+            self.add_item(DatePollButton(date, config))
 
 RequestType = Literal["discord_deleted_user", "owner", "user", "user_strict"]
 
@@ -308,44 +338,24 @@ class MovieClub(commands.Cog):
                 return
 
 
-            # Parse month if provided, else use the current month.
             if month:
-                current_year = datetime.datetime.now().year
-                    
-                try:
-                    month = datetime.datetime.strptime(month, "%B")
-                except ValueError:
-                    try:
-                        month = datetime.datetime.strptime(month, "%b")
-                    except ValueError:
-                        await ctx.send('Invalid month. Please provide a full month name (e.g., "October") or a three-letter abbreviation (e.g., "Oct").')
-                        return
-
-                month = month.replace(year=current_year)
-                logging.debug(f"Parsed month: {month}")  # Debug print
+                month = DateUtil.get_year_month(month)
             else:
-                # If no month is provided, use the current month
-                month = datetime.datetime.now()
-
-                # Calculate the last Monday of the month
+                month = DateUtil.now()
                 last_monday = last_weekday(calendar.MONDAY, month)
-
-                # Check if the last Monday is within 14 days or less.
-                # This is done to ensure that there's enough time for people to vote and prepare for the event.
-                # If not enough time is left, we consider the next month for scheduling.
-                if (last_monday.date() - datetime.date.today()).days <= 14:
-                    month = month + relativedelta(months=1)
+                if DateUtil.is_within_days(last_monday, DateUtil.now(), 14):
+                    month = DateUtil.to_next_month(month)
 
             us_holidays = CustomHolidays(years=month.year)
 
             # Calculate the last Monday, Wednesday, Thursday, and Friday of the month
             # These dates are abritrary for our server, but can be changed to suit your needs
             # TODO: fix this bad redundancy
-            last_monday = first_weekday_after_days(0, month.date(), days=14, holiday_list=us_holidays)
-            last_wednesday = first_weekday_after_days(2, month.date(), days=14, holiday_list=us_holidays)
-            last_thursday = first_weekday_after_days(3, month.date(), days=14, holiday_list=us_holidays)
-            last_friday = first_weekday_after_days(4, month.date(), days=14, holiday_list=us_holidays)
-            last_saturday = first_weekday_after_days(5, month.date(), days=14, holiday_list=us_holidays)
+            last_monday = first_weekday_after_days(0, month, days=14, holiday_list=us_holidays)
+            last_wednesday = first_weekday_after_days(2, month, days=14, holiday_list=us_holidays)
+            last_thursday = first_weekday_after_days(3, month, days=14, holiday_list=us_holidays)
+            last_friday = first_weekday_after_days(4, month, days=14, holiday_list=us_holidays)
+            last_saturday = first_weekday_after_days(5, month, days=14, holiday_list=us_holidays)
 
             # Filter out dates that are public holidays.
             # Also avoid the days immediately before and after holidays.
@@ -357,17 +367,21 @@ class MovieClub(commands.Cog):
             # Sort the dates so the buttons are in chronological order
             dates.sort()
 
-            # Code for creating and sending the poll 
-            # Create an embed for the poll
-            embed = Embed(title=f"{MOVIE_CLUB_LOGO}\n\n", description="Vote for the date of the next movie night!")
-            embed.add_field(name="Showtimes", value="6pm Pacific ∙ 7pm High Peak ∙ 8pm Heartland ∙ 9pm Eastern ∙ 10am 東京", inline=False)
+            target_role_id = await self.config.target_role()  
+            if target_role_id:
+                target_role = target_role_id
+                mention_str = f"<@&{target_role_id}>" if target_role else ""
+            else:
+                mention_str = ""
 
+            embed = Embed(title=f"{MOVIE_CLUB_LOGO}\n\n")
+            embed.add_field(name="Showtimes", value="6pm Pacific ∙ 7pm High Peak ∙ 8pm Heartland ∙ 9pm Eastern ∙ 10am 東京", inline=False)
 
             # Create a view with buttons for each date
             view = DatePollView(dates, self.config)
 
-            # Send the embed with the view
-            msg = await ctx.send(embed=embed, view=view)
+            # Send a regular message with the optional role mention followed by the voting prompt and the embed with the view
+            msg = await ctx.send(content=f"\u200B\nVote for the date of the next movie night! {mention_str}\n\u200B", embed=embed, view=view)
 
             # Save the poll message id and channel id into the bot config
             await self.config.poll_message_id.set(msg.id)
@@ -405,13 +419,20 @@ class MovieClub(commands.Cog):
 
                 # Collect user availability information for each date
                 date_user_votes = await self.config.date_user_votes()
+
                 for most_voted_date in most_voted_dates:
-                    user_votes = date_user_votes.get(most_voted_date, {})
+                    # use the correct date object to retrieve the votes
+                    date_to_check = datetime.datetime.strptime(most_voted_date, "%Y-%m-%d")
+                    presentable_date = DateUtil.get_presentable_date(date_to_check)
+                    
+                    # need to convert the date back to string format to use as key for the dictionary
+                    str_date_to_check = date_to_check.strftime("%Y-%m-%d")
+                    user_votes = date_user_votes.get(str_date_to_check, {})
                     user_ids = ', '.join(f'<@{user_id}>' for user_id in user_votes.keys())
-                    tie_message += f'**{most_voted_date}**\nAvailable: {user_ids}\n\n'
+                    tie_message += f'**{presentable_date}**\nAvailable: {user_ids}\n\n'
 
                 await ctx.send(tie_message)
-
+                
             # Reset the votes
             await self.config.date_votes.set({})
             await self.config.date_user_votes.set({})
