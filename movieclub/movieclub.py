@@ -10,7 +10,7 @@ from collections import defaultdict
 from dateutil.relativedelta import relativedelta, SU  # Import SU (Sunday)
 import discord
 from discord import ui, Embed, Button, ButtonStyle, ActionRow
-from discord.ext import tasks
+from discord.ext import tasks, commands
 from discord.errors import NotFound, Forbidden, HTTPException
 import holidays
 from holidays.countries.united_states import UnitedStates
@@ -545,3 +545,13 @@ class MovieClub(commands.Cog):
                 await poll_message.edit(view=view)
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 logging.error("Could not restore the poll")
+
+    @movieclub.command(name='hellothread')
+    async def hellothread(self, ctx, channel_id: int):
+        """Tries to create a forum post in the specified channel."""
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            await ctx.send("Invalid channel ID.")
+            return
+        thread = await channel.create_thread(name="Hello World Thread", content="This is the first message in the thread.")
+        await thread.send("Hello, World!")
