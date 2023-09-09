@@ -1,1 +1,2 @@
-from .date_poll import DatePollButton, DatePollView
+from .date_poll import DatePoll, DatePollButton, DatePollView
+from .poll import Poll
