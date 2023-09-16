@@ -24,22 +24,37 @@ class MovieClub(commands.Cog):
     def __init__(self, bot: Red) -> None:
         self.bot = bot
         self.config = Config.get_conf(self, identifier=289198795625857026, force_registration=True)
-        self.config.register_global(date_votes={}, is_date_poll_active=False, date_user_votes={}, date_buttons=[], target_role=None, poll_message_id=None, poll_channel_id=None)
-        self.date_poll = DatePoll(self.bot, self.config)   # Pass both bot and config
-        
+        self.config.register_guild(polls={}, target_role=None)
+        self.active_polls = {}  
+        self.polls = {}
+        # self.config.register_poll(poll_id="", votes={}, user_votes={}) 
+        self.keep_poll_alive.start()
+
+    async def is_active(self, poll_id: str): 
+        return poll_id in self.active_polls  # The poll is active if its id is in the active_polls
+
+    @tasks.loop(minutes=3)
+    async def keep_poll_alive(self):
+        for poll in self.active_polls.values():
+            try:
+                await poll.keep_poll_alive() 
+            except Exception as e:
+                logging.error(f"Unable to keep poll {poll.message_id} alive due to: {str(e)}") 
+    
+    @keep_poll_alive.before_loop
+    async def before_refresh_buttons(self):
+        await self.bot.wait_until_ready()
+
     async def red_delete_data_for_user(self, *, requester: RequestType, user_id: int) -> None:
         super().red_delete_data_for_user(requester=requester, user_id=user_id)
     
     @commands.Cog.listener()
     async def on_ready(self):
-        """Restores the poll if the bot restarts while the poll is active."""
-        await self.date_poll.restore_poll()
-        try:
-            logging.debug("Starting on_ready listener...")
-            self.refresh_poll_buttons.start()
-            logging.debug("Ending on_ready listener...")
-        except Exception as e:
-            logging.error(f"Unhandled exception in on_ready: {e}")
+        for poll in self.polls.values():
+            try:
+                await poll.restore_poll()
+            except Exception as e:
+                logging.error(f"Unhandled exception in on_ready during poll restoration: {e}")
 
     def create_poll(self, poll_type):
         if poll_type == "date":
@@ -63,18 +78,39 @@ class MovieClub(commands.Cog):
             else:
                 await ctx.send('Invalid poll command passed TEST!!!..')
 
-    @commands.guild_only()  # type:ignore
+    @commands.guild_only()  
     @commands.bot_has_permissions(embed_links=True)
     @commands.mod_or_permissions(manage_messages=True)
     @poll.command()
     async def date(self, ctx, action: str, month: str = None):
-        """Start or end a date poll to choose the next movie night date."""
+        target_role = await self.config.guild(ctx.guild).target_role()
+
         if action.lower() == "start":
-            await self.date_poll.start_poll(ctx, action, month)
+            try:
+                if "date_poll" in self.active_polls:    # proceed if poll is active
+                    # is_date_poll_active = await self.active_polls[Poll.poll_id].is_active()
+                    # if is_date_poll_active:
+                    await ctx.send('A date poll is already active.')
+                    return
+                else:
+                    Poll = DatePoll(self.bot, self.config, ctx.guild, target_role)
+                    self.active_polls[Poll.poll_id] = Poll
+                    await Poll.start_poll(ctx, action, month)
+                    await ctx.send('A date poll is activated.')
+
+            except AttributeError:
+                await ctx.send(f"Error: Unable to initialize date poll. For some reason, the Poll object could not be created.")
+                logging.exception("Failed to initialize date poll.")
+
         elif action.lower() == "end":
-            await self.date_poll.end_poll(ctx)
+            logging.debug(f"Active polls: {self.active_polls}")
+            if "date_poll" in self.active_polls:   # check if poll is in active polls using new poll_id
+                await self.active_polls["date_poll"].end_poll(ctx)
+                del self.active_polls["date_poll"]  # remove poll from active polls using new poll_id
+            else:
+                await ctx.send('No active date poll in this channel.')
         else:
-            await ctx.send('Invalid action. Use "start" or "end".')
+            await ctx.send('Invalid action. Use "start" or "end".') 
 
     @commands.guild_only()  # type:ignore
     @commands.bot_has_permissions(embed_links=True)
@@ -104,41 +140,15 @@ class MovieClub(commands.Cog):
         else:
             await ctx.send('Invalid action. Use "start" or "end".')
 
-    @tasks.loop(minutes=3)
-    async def refresh_poll_buttons(self, poll_type):
-        """Background task to refresh poll buttons."""
-        logging.debug("Starting refresh buttons task...")
-        try:
-            poll_object = self.create_poll(poll_type)
-            if poll_object is None:
-                logging.error("Poll object not created.")
-                return
-            is_poll_active = await poll_object.is_active()
-            if not is_poll_active:
-                logging.info(f"No active {poll_type} poll found.")
-                return
-            await poll_object.refresh_buttons()
-            logging.debug("Ending refresh buttons task...")
-        except ValueError as e:
-            logging.error(str(e))
-        except Exception as e:
-            logging.error(f"Unhandled exception in refresh_poll_buttons: {e}")
-        finally:
-            logging.debug("Ending refresh buttons task...")
-            
-    @refresh_poll_buttons.before_loop
-    async def before_refresh_buttons(self):
-        await self.bot.wait_until_ready()
-
-    @commands.guild_only()  # type:ignore
+    @commands.guild_only()  
     @commands.bot_has_permissions(embed_links=True)
     @commands.mod_or_permissions(manage_messages=True)
     @movieclub.command(name='setrole')
     async def set_target_role(self, ctx, role: discord.Role):
         """Sets the role for which to count the total members in polls. Default is @everyone."""
-        await self.config.target_role.set(role.id)
+        await self.config.guild(ctx.guild).target_role.set(role.id)
         await ctx.send(f"The role for total member count in polls has been set to {role.name}.")
-
+    
     @commands.guild_only()  # type:ignore
     @commands.bot_has_permissions(embed_links=True)
     @commands.mod_or_permissions(manage_messages=True)
