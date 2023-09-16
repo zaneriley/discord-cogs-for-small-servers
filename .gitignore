@@ -6,6 +6,16 @@ venv/
 .pytest_cache/
 .coverage
 .DS_Store
+*.log
+*.swp
+*.swo
+*.bak
+*.tmp
+*.out
+*.pid
+*.db
+*.sqlite3
+*.sql
 
 # Environments
 .env
