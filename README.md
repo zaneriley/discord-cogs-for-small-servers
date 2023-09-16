@@ -36,7 +36,7 @@ Contributions are welcome! If you find any issues or have ideas for improvements
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE). Feel free to modify and distribute it as needed.
+This project is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html). This ensures the freedom to use, modify, and distribute, but requires any derivative works or distributions to be open-source under the same license. See the [LICENSE](LICENSE) file in this repository for more details.
 
 ## Acknowledgements
 
