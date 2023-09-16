@@ -117,17 +117,34 @@ class CustomHolidays(UnitedStates):
         self[thanksgiving_eve] = "Thanksgiving Eve"
 
 class DatePollView(ui.View):
-    def __init__(self, dates, config):
+    def __init__(self, dates, config, guild, poll_id):
         super().__init__()
         for date in dates:
-            self.add_item(DatePollButton(date, config))
+            self.add_item(DatePollButton(date, config, guild, poll_id))
 
 class DatePollButton(ui.Button):
-    def __init__(self, date: datetime, config):
+    def __init__(self, date: datetime, config, guild, poll_id):
         super().__init__(style=ButtonStyle.primary, label=DateUtil.get_presentable_date(date))
         self.date = DateUtil.normalize_date(date)
         self.config = config
+        self.guild = guild
+        self.poll_id = poll_id
         
+    async def get_votes(self):
+        return await self.config.guild(self.guild).polls.get_raw(self.poll_id, "votes")
+    
+    async def set_votes(self, votes):
+        await self.config.guild(self.guild).polls.set_raw(self.poll_id, "votes", value=votes)
+
+    async def get_user_votes(self):
+        return await self.config.guild(self.guild).polls.get_raw(self.poll_id, "user_votes")
+    
+    async def set_user_votes(self, user_votes):
+        await self.config.guild(self.guild).polls.set_raw(self.poll_id, "user_votes", value=user_votes)
+  
+    async def get_target_role(self):
+        return await self.config.guild(self.guild).target_role()
+          
     async def callback(self, interaction: discord.Interaction):
         # let Discord know we received the interaction so it doesn't time us out
         # in case it takes a while to respond for some reason
@@ -136,8 +153,8 @@ class DatePollButton(ui.Button):
         user_id = str(interaction.user.id)  
 
         logging.debug(f"Fetching current votes and user votes")
-        votes = defaultdict(int, await self.config.date_votes())
-        date_user_votes = defaultdict(dict, await self.config.date_user_votes())
+        votes = defaultdict(int, await self.get_votes())
+        date_user_votes = defaultdict(dict, await self.get_user_votes())
         logging.debug(f"Fetched votes: {votes} and user votes: {date_user_votes}")
         date_key = self.date.strftime("%Y-%m-%d")  # Convert datetime to string for a dictionary key
         date_votes = defaultdict(bool, date_user_votes[date_key])
@@ -159,8 +176,8 @@ class DatePollButton(ui.Button):
 
         # Update config
         logging.debug(f"Updating votes and user votes")
-        await self.config.date_user_votes.set(dict(date_user_votes))  
-        await self.config.date_votes.set(dict(votes))
+        await self.set_user_votes(dict(date_user_votes))  
+        await self.set_votes(dict(votes))
         logging.debug(f"Updated votes: {votes} and user votes: {date_user_votes}")
         logging.debug(f"AFTER update: votes={votes}, dateVotes={date_votes}")
 
@@ -173,7 +190,7 @@ class DatePollButton(ui.Button):
             unique_voters.update(user_vote_list.keys())
         logging.debug(f"Unique voters: {unique_voters}")
 
-        target_role = await self.config.target_role()  
+        target_role = await self.get_target_role()
         if target_role:
             target_role = discord.utils.get(interaction.guild.roles, id=target_role)
             target_role_member_ids = set(str(member.id) for member in target_role.members) if target_role else {interaction.guild.members}
@@ -229,26 +246,8 @@ class DatePollButton(ui.Button):
         await interaction.followup.send(vote_message, ephemeral=True)
 
 class DatePoll(Poll): 
-    def __init__(self, bot, config, guild, target_role):  
+    def __init__(self, bot, config, guild):  
         super().__init__(bot, config, guild, "date_poll")
-        self.target_role = target_role
-
-        # self.bot = bot
-        # self.config = config
-        # self.guild = guild
-        # self.guild_conf = guild_conf
-
-        # logging.debug(f"Poll initialized with poll id: {self.poll_id}")
-        # try:
-        #     logging.debug(str(self.guild_conf.polls))
-        #     self.with_context = self.guild_conf.polls.get_raw(self.poll_id)
-        #     self.with_context.set(default={ "votes": {}, "user_votes": {} })
-        #     logging.debug(f"Poll initialized with poll id: {self.poll_id}")
-        # except AttributeError as e:
-        #     logging.error(f"Poll initialization failed due to: {str(e)}")
-        #     raise e
-        # # Initialised last to ensure all methods can use .with_context
-        # self.with_context.set(default={ "votes": {}, "user_votes": {} })
 
     async def start_poll(self, ctx, action, month):
         if action == "start":
@@ -268,7 +267,7 @@ class DatePoll(Poll):
             dates = [date for date in [last_monday, last_wednesday, last_thursday, last_friday, last_saturday] if date is not None]
             dates.sort()
             
-            target_role = self.target_role
+            target_role = await self.get_target_role()
             if target_role:
                 mention_str = f"<@&{target_role}>" if target_role else ""
             else:
@@ -277,11 +276,11 @@ class DatePoll(Poll):
             # TODO: Move to discord.py functions?
             embed = Embed(title=f"{MOVIE_CLUB_LOGO}\n\n")
             embed.add_field(name="Showtimes", value="6pm Pacific ∙ 7pm High Peak ∙ 8pm Heartland ∙ 9pm Eastern ∙ 10am 東京", inline=False)
-            view = DatePollView(dates, self.config)
+            view = DatePollView(dates, self.config, self.guild, self.poll_id)
             msg = await ctx.send(content=f"\u200B\nVote for the date of the next movie night! {mention_str}\n\u200B", embed=embed, view=view)
-            logging.debug(f"Generated message id: {self.message_id}")
-            self.set_message_id(msg.id)
-            self.set_poll_channel_id(msg.channel.id)
+            logging.debug(f"Generated message id: {msg.id}")
+            await self.set_message_id(msg.id)
+            await self.set_poll_channel_id(msg.channel.id)
             
             # votes = await self.with_context.votes()
             # votes[date_key] += 1
@@ -289,13 +288,13 @@ class DatePoll(Poll):
             
             # await self.config.is_date_poll_active.set(True)
             date_strings = [date.strftime("%a, %b %d, %Y") for date in dates]
-            self.add_buttons(date_strings)
+            await self.add_buttons(date_strings)
         else:
             await ctx.send('Invalid action. Use "start" or "end".')
 
     async def end_poll(self, ctx):
         try:
-            votes = await self.config.date_votes()
+            votes = await self.get_votes()
             if len(votes) == 0:
                 await ctx.send("The poll was manually closed. No one voted in this poll.")
                 return
@@ -305,7 +304,7 @@ class DatePoll(Poll):
                 tied_message = f"\u200B\n{MOVIE_CLUB_LOGO}\n\nThere is a tie! <:swirl:1103626545685336116> The most voted dates are:\n\n"
             else:
                 tied_message = f"\u200B\n{MOVIE_CLUB_LOGO}\n\n The most voted date is:\n\n"
-            date_user_votes = await self.config.date_user_votes()
+            date_user_votes = await self.get_user_votes()
             for most_voted_date in most_voted_dates:
                 date_to_check = datetime.datetime.strptime(most_voted_date, "%Y-%m-%d")
                 presentable_date = DateUtil.get_presentable_date(date_to_check)
@@ -315,18 +314,14 @@ class DatePoll(Poll):
                 tied_message += f'**{presentable_date}**\nAvailable: {user_ids}\n\n'
             await ctx.send(tied_message)
             logging.debug("Clearing votes and user votes, setting Date Poll as inactive.")
-            await self.config.date_votes.set({})
-            await self.config.date_user_votes.set({})
-            await self.config.is_date_poll_active.set(False)
+            await self.remove_poll_from_config()
             logging.debug("Date Poll ended and set as inactive successfully.")
         except Exception as e:
             logging.error(f"Unable to end Date Poll due to: {str(e)}")  
 
     async def keep_poll_alive(self):
         logging.debug("Keeping Date Poll alive...")
-        channel_id = await self.config.poll_channel_id()
-        message_id = await self.config.poll_message_id()
-        poll_message = await self._fetch_poll_message(channel_id, message_id)
+        poll_message = await self._fetch_poll_message()
         if poll_message:
             try:
                 logging.debug("Editing message...")
@@ -335,37 +330,23 @@ class DatePoll(Poll):
                 logging.debug("Message edited.")
             except HTTPException as e:
                 logging.debug(f"Unable to edit the message due to {e}. Setting the poll to inactive.")
-                await self.config.is_date_poll_active.set(False)
+                await self.remove_poll_from_config(self)
 
-    async def is_active(self): 
-        guild_conf = self.config.guild(self.guild)
-        try:
-            await guild_conf.polls.get_raw(self.poll_id) # fetch active polls from guild's config
-            return True
-        except KeyError as e:
-            return False  # check if this poll is active
-
-    async def get_votes(self):
-        return await self.config.date_votes()
-
-    async def get_user_votes(self):
-        return await self.config.date_user_votes()
-
-    # async def restore_poll(self):
-    #     poll_message = await self._fetch_poll_message()
-    #     if poll_message is None:
-    #         return
-    #     # date_votes_dict = await self.config.date_votes()
-    #     # date_votes = {datetime.datetime.strptime(date_string, "%a, %b %d"): vote for date_string, vote in date_votes_dict.items()}
-    #     date_strings = await self.config.date_buttons()
-    #     dates = [datetime.datetime.strptime(date_string, "%a, %b %d, %Y") for date_string in date_strings]
-    #     view = DatePollView(dates, self.config)
-    #     await poll_message.edit(view=view)
+    async def restore_poll(self):
+        poll_message = await self._fetch_poll_message()
+        if poll_message is None:
+            return
+        # date_votes_dict = await self.config.date_votes()
+        # date_votes = {datetime.datetime.strptime(date_string, "%a, %b %d"): vote for date_string, vote in date_votes_dict.items()}
+        date_strings = await self.get_buttons()
+        dates = [datetime.datetime.strptime(date_string, "%a, %b %d, %Y") for date_string in date_strings]
+        view = DatePollView(dates, self.config, self.guild, self.poll_id)
+        await poll_message.edit(view=view)
     
     async def build_view(self):
-        date_strings = await self.config.date_buttons()
+        date_strings = await self.get_buttons()
         dates = [datetime.datetime.strptime(date_string, "%a, %b %d, %Y") for date_string in date_strings]
-        return DatePollView(dates, self.config)
+        return DatePollView(dates, self.config, self.guild, self.poll_id)
 
     def send_initial_message(self):
         pass

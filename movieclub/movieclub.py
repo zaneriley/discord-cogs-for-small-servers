@@ -29,17 +29,22 @@ class MovieClub(commands.Cog):
         self.polls = {}
         # self.config.register_poll(poll_id="", votes={}, user_votes={}) 
         self.keep_poll_alive.start()
-
-    async def is_active(self, poll_id: str): 
-        return poll_id in self.active_polls  # The poll is active if its id is in the active_polls
-
+    
+    async def get_all_active_polls_from_config(self, guild):
+        return await self.config.guild(guild).polls()
+    
     @tasks.loop(minutes=3)
     async def keep_poll_alive(self):
+        error_polls = []
         for poll in self.active_polls.values():
             try:
                 await poll.keep_poll_alive() 
             except Exception as e:
-                logging.error(f"Unable to keep poll {poll.message_id} alive due to: {str(e)}") 
+                message_id = await poll.get_message_id()
+                logging.error(f"Unable to keep poll {message_id} alive due to: {str(e)}") 
+                error_polls.append(poll.poll_id)
+        for error_poll in error_polls:
+            del self.active_polls[error_poll]
     
     @keep_poll_alive.before_loop
     async def before_refresh_buttons(self):
@@ -50,7 +55,16 @@ class MovieClub(commands.Cog):
     
     @commands.Cog.listener()
     async def on_ready(self):
-        for poll in self.polls.values():
+
+        for guild in self.bot.guilds:
+            restoring_polls = await self.get_all_active_polls_from_config(guild)
+            for poll_id in restoring_polls.keys():
+                if poll_id == "date_poll":
+                    self.active_polls[poll_id] = DatePoll(self.bot, self.config, guild)
+                elif poll_id == "movie_poll":
+                    pass
+        
+        for poll in self.active_polls.values():
             try:
                 await poll.restore_poll()
             except Exception as e:
@@ -87,15 +101,16 @@ class MovieClub(commands.Cog):
 
         if action.lower() == "start":
             try:
-                if "date_poll" in self.active_polls:    # proceed if poll is active
+                if "date_poll" in self.active_polls.keys():    # proceed if poll is active
                     # is_date_poll_active = await self.active_polls[Poll.poll_id].is_active()
                     # if is_date_poll_active:
                     await ctx.send('A date poll is already active.')
                     return
                 else:
-                    Poll = DatePoll(self.bot, self.config, ctx.guild, target_role)
-                    self.active_polls[Poll.poll_id] = Poll
-                    await Poll.start_poll(ctx, action, month)
+                    poll = DatePoll(self.bot, self.config, ctx.guild)
+                    await poll.write_poll_to_config()
+                    await poll.start_poll(ctx, action, month)
+                    self.active_polls["date_poll"] = poll  # add poll to active polls using new poll_id
                     await ctx.send('A date poll is activated.')
 
             except AttributeError:
@@ -103,8 +118,7 @@ class MovieClub(commands.Cog):
                 logging.exception("Failed to initialize date poll.")
 
         elif action.lower() == "end":
-            logging.debug(f"Active polls: {self.active_polls}")
-            if "date_poll" in self.active_polls:   # check if poll is in active polls using new poll_id
+            if "date_poll" in self.active_polls.keys():   # check if poll is in active polls using new poll_id
                 await self.active_polls["date_poll"].end_poll(ctx)
                 del self.active_polls["date_poll"]  # remove poll from active polls using new poll_id
             else:
