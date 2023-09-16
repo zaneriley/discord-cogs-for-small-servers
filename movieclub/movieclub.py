@@ -55,7 +55,6 @@ class MovieClub(commands.Cog):
     
     @commands.Cog.listener()
     async def on_ready(self):
-
         for guild in self.bot.guilds:
             restoring_polls = await self.get_all_active_polls_from_config(guild)
             for poll_id in restoring_polls.keys():
