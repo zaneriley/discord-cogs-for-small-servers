@@ -1,18 +1,24 @@
 import logging
 from abc import ABC, abstractmethod
 import uuid
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from discord.errors import NotFound, Forbidden, HTTPException
 
 class Poll(ABC):
 
-    def __init__(self, bot, config, guild, poll_type):
+    def __init__(self, 
+                 bot, 
+                 config, 
+                 guild: int, 
+                 poll_type: str,
+                 ):
         self.bot = bot
         self.config = config
         self.guild = guild
         self.poll_id = poll_type
-        self.message_id = None
-        self.poll_channel_id = None
+        self.message_id = 0
+        self.channel_id = 0
         self.buttons = []
 
         # Store the poll data under its unique id

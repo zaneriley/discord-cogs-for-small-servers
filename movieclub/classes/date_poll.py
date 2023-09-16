@@ -279,10 +279,9 @@ class DatePoll(Poll):
             embed.add_field(name="Showtimes", value="6pm Pacific ∙ 7pm High Peak ∙ 8pm Heartland ∙ 9pm Eastern ∙ 10am 東京", inline=False)
             view = DatePollView(dates, self.config)
             msg = await ctx.send(content=f"\u200B\nVote for the date of the next movie night! {mention_str}\n\u200B", embed=embed, view=view)
-            self.message_id = msg.id
             logging.debug(f"Generated message id: {self.message_id}")
-            self.message_id = msg.id
-            self.poll_channel_id = msg.channel.id
+            self.set_message_id(msg.id)
+            self.set_poll_channel_id(msg.channel.id)
             
             # votes = await self.with_context.votes()
             # votes[date_key] += 1
@@ -290,7 +289,7 @@ class DatePoll(Poll):
             
             # await self.config.is_date_poll_active.set(True)
             date_strings = [date.strftime("%a, %b %d, %Y") for date in dates]
-            self.buttons.append(date_strings)
+            self.add_buttons(date_strings)
         else:
             await ctx.send('Invalid action. Use "start" or "end".')
 
