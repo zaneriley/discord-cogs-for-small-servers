@@ -4,6 +4,7 @@ import json
 import logging
 from typing import List, Dict, Union, Optional
 import unicodedata
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,8 +33,6 @@ def get_validated_base_url(film: str, year: Optional[str] = None) -> str:
 
     raise ValueError(f"Invalid movie or year: {response.status_code} {response.reason} for URL: {response.url}")
 
-
-
 def construct_url(base_url: str, url_type: str) -> str:
     if url_type == 'info':
         return f"{base_url}/"
@@ -43,7 +42,6 @@ def construct_url(base_url: str, url_type: str) -> str:
         return f"{base_url}/likes/"
     else:
         raise ValueError(f"Invalid url_type: {url_type}. Expected 'info', 'reviews', or 'stats'.")
-
 
 def fetch_reviews(url: str) -> Optional[str]:
     """Fetches the reviews from the constructed URL."""
@@ -97,6 +95,7 @@ def parse_review_data(page_content: str) -> List[Dict[str, str]]:
     
     return reviews
 
+
 def fetch_movie_data(film: str, year: str = None):
     url_with_year = construct_url(film, 'info')
     url_without_year = construct_url(film, 'info')
@@ -111,26 +110,47 @@ def fetch_movie_data(film: str, year: str = None):
             soup = BeautifulSoup(response.content, 'html.parser')
 
             # Get the necessary data
-            title = soup.find('title').text  # or another method to get the title
-            year_of_release = "Extract Year here"  # Find the correct way to extract the year
+            title_section = soup.find('section', {'id': 'featured-film-header'})
+            title = title_section.find('h1', class_='headline-1').get_text() if title_section else None
+
+            year_of_release = soup.find('small', class_='number').find('a').text if soup.find('small', class_='number') else None
             tagline = soup.find('h4', class_='tagline').text if soup.find('h4', class_='tagline') else None
             description = soup.find('div', class_='truncate').find('p').text if soup.find('div', class_='truncate') else None
-            genres = "Extract genres here"  # Find the correct way to extract genres
-            runtime = "Extract runtime here"  # Find the correct way to extract runtime
-
-            trailer_link = soup.find('p', class_='trailer-link js-watch-panel-trailer').find('a')['href'] if soup.find('p', class_='trailer-link js-watch-panel-trailer') else None
-
-            # Get the ratings 
-            rating_url = url.replace('/film/', '/csi/film/') + 'rating-histogram/'
-            rating_response = requests.get(rating_url)
-            rating_response.raise_for_status()
-            rating_soup = BeautifulSoup(rating_response.content, 'html.parser')
-            average_rating = "Extract average rating here"  # Find the correct way to extract average rating
-            number_of_reviewers = "Extract number of reviewers here"  # Find the correct way to extract number of reviewers
-
-            # Get a short popular review
-            pull_quote = "Extract a short popular review here"  # Find a correct way to extract a popular review
+            genres = [a.text for a in soup.find('div', id='tab-genres').find('div', class_='text-sluglist capitalize').find_all('a', class_='text-slug')] if soup.find('div', id='tab-genres') else None  
             
+            runtime_paragraph = soup.find('p', class_='text-link text-footer')
+            if runtime_paragraph:
+                runtime_text = runtime_paragraph.get_text()
+                runtime_match = re.search(r'(\d+)\s*mins', runtime_text)
+                if runtime_match:
+                    runtime = int(runtime_match.group(1).replace(',', ''))  # Convert to integer after removing any commas
+                else:
+                    runtime = None
+            else:
+                runtime = None
+
+            trailer_link_section = soup.find('p', class_='trailer-link js-watch-panel-trailer')
+            if trailer_link_section:
+                trailer_link_a = trailer_link_section.find('a')
+                if trailer_link_a and trailer_link_a.has_attr('href'):
+                    trailer_link = "https:" + trailer_link_a['href']
+                else:
+                    trailer_link = None
+            else:
+                trailer_link = None
+            # Get the ratings
+            script_tag = soup.find('script', type='application/ld+json')
+            if script_tag:
+                script_text = script_tag.string
+                clean_script_text = script_text.replace("/* <![CDATA[ */", "").replace("/* ]]> */", "")
+                script_json = json.loads(clean_script_text)
+                aggregate_rating = script_json.get('aggregateRating', {})
+                average_rating = aggregate_rating.get('ratingValue')
+                number_of_reviewers = aggregate_rating.get('reviewCount') or aggregate_rating.get('ratingCount')
+            else:
+                average_rating = None
+                number_of_reviewers = None
+
             # Step 3: Data Parsing
             movie_data = {
                 "title": title,
@@ -142,8 +162,7 @@ def fetch_movie_data(film: str, year: str = None):
                 "average_rating": average_rating,
                 "number_of_reviewers": number_of_reviewers,
                 "trailer_link": trailer_link,
-                "letterboxd_review_link": url,  # I added this to include a link to the reviews
-                "pull_quote": pull_quote
+                "letterboxd_link": url,
             }
                 
             return movie_data
@@ -151,7 +170,7 @@ def fetch_movie_data(film: str, year: str = None):
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch data for {film} ({year}) due to: {str(e)}")
             return None
-    
+
        
     else:
         logger.error(f"Failed to fetch data for {film} ({year}) due to: {response.status_code} {response.reason} for url: {response.url}")
