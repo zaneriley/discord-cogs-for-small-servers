@@ -2,81 +2,89 @@ import os
 import requests
 import logging
 from dotenv import load_dotenv
-from typing import Union, Dict, Any
+from typing import Union, Dict, Any, List
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+def configure_logging():
+    """
+    Configures logging settings.
+    """
+    logging.basicConfig(level=logging.INFO)
 
-# Load environment variables
-load_dotenv(os.path.join(os.path.dirname(__file__), '../../../.env'))
+def load_environment_variables():
+    """
+    Load environment variables from the .env file.
+    """
+    load_dotenv(os.path.join(os.path.dirname(__file__), '../../../.env'))
 
-API_BASE_URL = "https://api.themoviedb.org/3"
-API_KEY = os.getenv("TMDB_API_KEY")
+def make_request(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Makes a GET request to the specified URL with the given parameters and returns the JSON response.
+    """
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error making request to {url}: {e}")
+        return None
 
-if not API_KEY:
-    logging.error("TMDB_API_KEY not found in environment variables.")
-    exit(1)
-
+def extract_movie_details(movie_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extracts movie details from the API response data.
+    """
+    genres = [genre['name'] for genre in movie_data.get('genres', [])]
+    return {
+        "title": movie_data.get('title', 'N/A'),
+        "year_of_release": int(movie_data['release_date'].split('-')[0]) if movie_data.get('release_date') else 'N/A',
+        "tagline": movie_data.get('tagline', 'N/A'),
+        "genres": genres,
+        "runtime": movie_data.get('runtime', 'N/A'),
+        "poster_url": f"https://image.tmdb.org/t/p/w500{movie_data.get('poster_path', '')}" if movie_data.get('poster_path') else 'N/A',
+        "trailer_link": f"https://www.youtube.com/watch?v={movie_data['videos']['results'][0]['key']}" if movie_data['videos']['results'] else 'N/A',
+    }
 
 def fetch_movie_details(movie_name: str) -> Union[Dict[str, Any], None]:
     """
     Fetches movie details from TMDb API by movie name.
     """
-    try:
-        search_url = f"{API_BASE_URL}/search/movie"
-        params = {
-            "api_key": API_KEY,
-            "query": movie_name
-        }
-        response = requests.get(search_url, params=params)
-        response.raise_for_status()
-        data = response.json()
+    API_BASE_URL = "https://api.themoviedb.org/3"
+    API_KEY = os.getenv("TMDB_API_KEY")
 
-        if not data['results']:
-            logging.error(f"No results found for the movie name: {movie_name}")
-            return None
+    if not API_KEY:
+        logging.error("TMDB_API_KEY not found in environment variables.")
+        exit(1)
 
-        movie_data = data['results'][0]
-
-        movie_details = {
-            "title": {
-                "label": "Title",
-                "type": "short_text",
-                "value": movie_data.get('title', 'N/A')
-            },
-            "genre": {
-                "label": "Genre",
-                "type": "short_text",
-                "value": "Pre-fetched Genre"  # To be filled after fetching genre details
-            },
-            "year": {
-                "label": "Year",
-                "type": "number",
-                "value": int(movie_data['release_date'].split('-')[0]) if movie_data.get('release_date') else 'N/A'
-            },
-            "poster_url": {
-                "label": "Poster URL",
-                "type": "short_text",
-                "value": f"https://image.tmdb.org/t/p/w500{movie_data.get('poster_path', '')}" if movie_data.get('poster_path') else 'N/A'
-            },
-            "trailer_url": {
-                "label": "Trailer URL",
-                "type": "short_text",
-                "value": "Pre-fetched Trailer URL"  # To be filled after fetching trailer details
-            },
-            "fan_count": {
-                "label": "Fan Count",
-                "type": "number",
-                "value": "Pre-fetched Fan Count"  # To be filled after fetching fan count details
-            }
-        }
-        return movie_details
-
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching movie details: {e}")
+    # Step 1: Search for the movie to get its ID
+    search_url = f"{API_BASE_URL}/search/movie"
+    params = {
+        "api_key": API_KEY,
+        "query": movie_name
+    }
+    data = make_request(search_url, params)
+    if not data or not data['results']:
+        logging.error(f"No results found for the movie name: {movie_name}")
         return None
 
-    
-if __name__ == "__main__":
+    movie_id = data['results'][0]['id']
+
+    # Step 2: Use the movie ID to fetch detailed info
+    movie_url = f"{API_BASE_URL}/movie/{movie_id}"
+    params["append_to_response"] = "videos"  # Include videos (for trailer link) in the response
+    movie_data = make_request(movie_url, params)
+    if not movie_data:
+        return None
+
+    # Step 3: Extract the details
+    return extract_movie_details(movie_data)
+
+def main():
+    """
+    The main function to execute the script.
+    """
+    configure_logging()
+    load_environment_variables()
     movie_details = fetch_movie_details("Inception")
     logging.info(movie_details)
+
+if __name__ == "__main__":
+    main()
