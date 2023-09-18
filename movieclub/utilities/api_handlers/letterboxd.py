@@ -5,6 +5,7 @@ import logging
 from typing import List, Dict, Union, Optional
 import unicodedata
 import re
+from urllib.parse import urlparse, urlunparse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -107,6 +108,10 @@ def fetch_movie_data(film: str, year: str = None):
     if response.status_code == 200:
         try:
             url = response.url  # Capture the correct URL from the response
+            parsed_url = urlparse(url)
+            cleaned_path = '/'.join(segment for segment in parsed_url.path.split('/') if segment)
+            url = urlunparse(parsed_url._replace(path=cleaned_path))
+
             soup = BeautifulSoup(response.content, 'html.parser')
 
             # Get the necessary data
@@ -133,11 +138,14 @@ def fetch_movie_data(film: str, year: str = None):
             if trailer_link_section:
                 trailer_link_a = trailer_link_section.find('a')
                 if trailer_link_a and trailer_link_a.has_attr('href'):
-                    trailer_link = "https:" + trailer_link_a['href']
+                    trailer_link = trailer_link_a['href']
+                    if trailer_link.startswith('//'):
+                        trailer_link = "https:" + trailer_link
                 else:
                     trailer_link = None
             else:
                 trailer_link = None
+                
             # Get the ratings
             script_tag = soup.find('script', type='application/ld+json')
             if script_tag:
