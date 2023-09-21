@@ -58,20 +58,39 @@ class MoviePoll(Poll):
         view = MovieInteraction()
         await ctx.send(embed=embed)
 
-    async def start_poll(self, ctx, action, month):
+    async def start_poll(self, ctx, action, movies):
         if action == "start":
-            pass
+            
+            target_role = await self.get_target_role()
+            if target_role:
+                mention_str = f"<@&{target_role}>" if target_role else ""
+            else:
+                mention_str = ""
+
+            view = await self.build_view()
+            msg = await ctx.send(content=f"\u200B\n{MOVIE_CLUB_LOGO}\n\nWhich movie will we watch next? {mention_str}\n\u200B")
+            logging.debug(f"Generated message id: {msg.id}")
+            await self.set_message_id(msg.id)
+            await self.set_poll_channel_id(msg.channel.id)
+
+            embeds_list = []
+            for movie_data in movies.values():
+                movie_embed = Embed.from_dict(movie_data)
+                embeds_list.append(movie_embed)
+            await ctx.send(embeds=embeds_list, view=view)
         else:
             await ctx.send('Invalid action. Use "start" or "end".')
 
     async def end_poll(self, ctx):
         try:
-            pass
+            logging.debug("Clearing votes and user votes, setting Movie Poll as inactive.")
+            await self.remove_poll_from_config()
+            logging.debug("Movie Poll ended and set as inactive successfully.")
         except Exception as e:
             logging.error(f"Unable to end movie poll due to: {str(e)}")  
 
     async def keep_poll_alive(self):
-        logging.debug("Keeping Date Poll alive...")
+        logging.debug("Keeping Movie Poll alive...")
         poll_message = await self._fetch_poll_message()
         if poll_message:
             try:
@@ -95,9 +114,7 @@ class MoviePoll(Poll):
         await poll_message.edit(view=view)
     
     async def build_view(self):
-        date_strings = await self.get_buttons()
-        dates = [datetime.datetime.strptime(date_string, "%a, %b %d, %Y") for date_string in date_strings]
-        return DatePollView(dates, self.config, self.guild, self.poll_id)
+        pass
 
     def send_initial_message(self):
         pass

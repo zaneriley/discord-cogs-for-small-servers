@@ -28,7 +28,7 @@ def fetch_and_normalize_movie_data(movie_name: str) -> Dict[str, Union[str, Any]
         
         # Fetch data from Letterboxd
         letterboxd_details = fetch_letterboxd_details(movie_name)
-
+        logging.info(f"Letterboxd details: {letterboxd_details}")
         if 'letterboxd_link' in letterboxd_details:
             # Fetch Reviews
             review_url = construct_url(letterboxd_details['letterboxd_link'], 'reviews')
@@ -39,7 +39,7 @@ def fetch_and_normalize_movie_data(movie_name: str) -> Dict[str, Union[str, Any]
 
         # Map data in our specific format and merge it
         movie_data: Dict[str, Union[str, Any]] = {
-            'title': tmdb_details.get('title', '') or letterboxd_details.get('title',''),
+            'title': letterboxd_details.get('title','') or tmdb_details.get('title', ''),
             'year_of_release': tmdb_details.get('year_of_release', '') or letterboxd_details.get('year_of_release', ''),
             'tagline': tmdb_details.get('tagline', '') or letterboxd_details.get('tagline', ''),
             'description': tmdb_details.get('description', '') or letterboxd_details.get('description', ''),
@@ -50,6 +50,7 @@ def fetch_and_normalize_movie_data(movie_name: str) -> Dict[str, Union[str, Any]
             'number_of_reviewers': letterboxd_details.get('number_of_reviewers', 0),
             'trailer_url': tmdb_details.get('trailer_link', '') or letterboxd_details.get('trailer_link', ''),
             'letterboxd_link': letterboxd_details.get('letterboxd_link', ''),
+            'banner_image': letterboxd_details.get('banner_image', ''),
         }
 
         logging.info("Fetched and normalized movie data.")
@@ -89,7 +90,7 @@ def movie_data_to_discord_format(movie_data: Dict[str, Any]) -> Dict[str, Any]:
         tagline = movie_data.get('tagline')
         description_text = movie_data.get('description', '')
 
-        description = f"`{tagline.upper() if tagline else 'No tagline available'}`\n\n{description_text}"
+        description = f"`{tagline.upper() if tagline else 'No tagline available'}`\n\n{description_text}\n\u200B"
 
         author_value = "TODO"  # Value derived from movie_data, hard-coded or from an external source 
         fields = [
@@ -109,7 +110,10 @@ def movie_data_to_discord_format(movie_data: Dict[str, Any]) -> Dict[str, Any]:
         for field in fields:
             embed.add_field(name=field['name'], value=field['value'], inline=field['inline'])
         
-        
+        banner_image = movie_data.get('banner_image')
+        if banner_image:
+            embed.set_image(url=banner_image)
+
         footer_text = select_review(movie_data.get('reviews', []))
 
         if footer_text:

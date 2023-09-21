@@ -4,6 +4,7 @@ import datetime
 from datetime import date, timedelta
 from collections import defaultdict
 import uuid
+from typing import List
 import logging
 
 # Third-party library imports
@@ -11,6 +12,7 @@ from dateutil.relativedelta import relativedelta, SU  # Import SU (Sunday)
 import discord
 from discord import ui
 from discord import ui, Embed, ButtonStyle
+from discord.errors import NotFound, Forbidden, HTTPException
 from holidays.countries.united_states import UnitedStates
 
 # Application-specific imports
@@ -18,7 +20,7 @@ from .poll import Poll
 from ..constants import MOVIE_CLUB_LOGO
 from ..utilities import DateUtil
 
-def first_weekday_after_days(weekday, date, days=14, holiday_list=None):
+def first_weekday_after_days(weekday: int, date: datetime, days: int=14, holiday_list: List=None) -> datetime:
     """
     Returns the first weekday after a given number of days from the input date,
     skipping any holidays.
@@ -336,10 +338,9 @@ class DatePoll(Poll):
         poll_message = await self._fetch_poll_message()
         if poll_message is None:
             return
-        # date_votes_dict = await self.config.date_votes()
-        # date_votes = {datetime.datetime.strptime(date_string, "%a, %b %d"): vote for date_string, vote in date_votes_dict.items()}
+
         date_strings = await self.get_buttons()
-        dates = [datetime.datetime.strptime(date_string, "%a, %b %d, %Y") for date_string in date_strings]
+        dates = [DateUtil.str_to_date(date_string) for date_string in date_strings]  # Converted line to use DateUtil
         view = DatePollView(dates, self.config, self.guild, self.poll_id)
         await poll_message.edit(view=view)
     

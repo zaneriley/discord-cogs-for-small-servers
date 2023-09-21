@@ -65,14 +65,13 @@ def select_best_search_result(search_results: List[BeautifulSoup], film: str) ->
                 # Get movie title excluding the 'small' tag (year)
                 title = ''.join(title_element.find_all(text=True, recursive=False)).strip().lower()
                 logger.info(f"Scraped title: {title}")
-
-                if title == film:
-                    url = title_element.get('href', '')
-                    url = f"https://letterboxd.com{url}"
-                    logger.info(f"Best match found: {title}")
-                    return url
-                else:
-                    logger.info(f"No title match found. Title scraped: {title}, Movie title input: {film}")
+                url = title_element.get('href', '')
+                url = f"https://letterboxd.com{url}"
+                logger.info(f"Search input keyword and found title doesn't match. Title scraped: {title}, Movie title input: {film}")
+                logger.info(f"Going with best match found: {title}")
+                return url
+                
+                    
                 
         logger.error(f"No suitable results found for film: {film}")
         return None
@@ -204,7 +203,16 @@ def fetch_movie_details(film: str, year: str = None):
                     trailer_link = None
             else:
                 trailer_link = None
-                
+
+            
+            # Extract the backdrop image URL
+            backdrop_div = soup.find('div', id='backdrop')
+            if backdrop_div and backdrop_div.has_attr('data-backdrop'):
+                image_url = backdrop_div['data-backdrop']
+            else:
+                image_url = None
+
+
             # Get the ratings
             script_tag = soup.find('script', type='application/ld+json')
             if script_tag:
@@ -230,6 +238,7 @@ def fetch_movie_details(film: str, year: str = None):
                 "number_of_reviewers": number_of_reviewers,
                 "trailer_link": trailer_link,
                 "letterboxd_link": url,
+                "banner_image": image_url,
             }
                 
             return movie_data
