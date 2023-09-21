@@ -85,8 +85,11 @@ def convert_to_presentable_count(number: int) -> str:
 def movie_data_to_discord_format(movie_data: Dict[str, Any]) -> Dict[str, Any]:
     try:
         logging.info("Formatting movie data to Discord message format.")
+        
+        tagline = movie_data.get('tagline')
+        description_text = movie_data.get('description', '')
 
-        description = f"`{movie_data['tagline'].upper()}`\n\n{movie_data['description']}"
+        description = f"`{tagline.upper() if tagline else 'No tagline available'}`\n\n{description_text}"
 
         author_value = "TODO"  # Value derived from movie_data, hard-coded or from an external source 
         fields = [
@@ -95,21 +98,24 @@ def movie_data_to_discord_format(movie_data: Dict[str, Any]) -> Dict[str, Any]:
             {'name': 'More', 'value': f"[Trailer]({movie_data['trailer_url']}) · [Letterboxd]({movie_data['letterboxd_link']})", 'inline': True}
         ]
 
-        footer_text = select_review(movie_data.get('reviews', []))
-        footer_text = footer_text or "No review available"
-        footer_icon = "https://cdn3.emoji.gg/emojis/7133-star.gif"
         # Create the Embed object
         embed = discord.Embed(
-            title=f"{movie_data['title']} ({movie_data.get('year_of_release')})",
+            title=f"{movie_data['title']} ({movie_data.get('year_of_release', '')})",
             description=description,
-            color=3356474,
+            color=3356474
         )
         
         # Add fields using the add_field method
         for field in fields:
             embed.add_field(name=field['name'], value=field['value'], inline=field['inline'])
         
-        embed.set_footer(text=footer_text, icon_url=footer_icon)
+        
+        footer_text = select_review(movie_data.get('reviews', []))
+
+        if footer_text:
+            footer_text = f'"{footer_text}"'
+            footer_icon = "https://cdn3.emoji.gg/emojis/7133-star.gif"
+            embed.set_footer(text=footer_text, icon_url=footer_icon)
 
         return embed
     except Exception as e:
