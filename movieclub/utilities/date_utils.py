@@ -1,50 +1,53 @@
-import datetime
-from datetime import date, timedelta
-from typing import Literal, List
-from collections import defaultdict
+from datetime import datetime, timedelta
+from typing import List
 
 # Third-party library imports
-from dateutil.relativedelta import relativedelta, SU  # Import SU (Sunday)
+from dateutil.relativedelta import relativedelta
+
 class DateUtil:
-
     @staticmethod
-    def normalize_date(date: datetime.datetime) -> datetime.datetime:
+    def normalize_date(date: datetime) -> datetime:
         """Returns a date with the time set to 00:00:00 for consistent comparison"""
-        return datetime.datetime.combine(date.date(), datetime.datetime.min.time())
+        return datetime.combine(date.date(), datetime.min.time())
 
     @staticmethod
-    def get_presentable_date(date: datetime.datetime) -> str:
+    def get_presentable_date(date: datetime) -> str:
         """Returns a date string in the format 'Mon, Sept 18'"""
         return date.strftime('%a, %b %d')
 
     @staticmethod
     def add_days(date: datetime, days: int) -> datetime:
         """Returns the date after adding the specified number of days"""
-        return date + datetime.timedelta(days=days)
+        return date + timedelta(days=days)
 
     @staticmethod
     def subtract_days(date: datetime, days: int) -> datetime:
         """Returns the date after subtracting the specified number of days"""
-        return date - datetime.timedelta(days=days)
-    
+        return date - timedelta(days=days)
+
     @staticmethod
-    def sort_dates(dates: List[datetime.datetime]) -> List[datetime.datetime]:
+    def str_to_date(date_strings: List[str], format_str: str = '%a, %b %d, %Y') -> List[datetime]:
+        """Converts a list of date strings to a list of datetime objects using the specified format string"""
+        return [datetime.strptime(date_string, format_str) for date_string in date_strings]
+
+    @staticmethod
+    def sort_dates(dates: List[datetime]) -> List[datetime]:
         """Sorts and returns a list of datetime objects"""
         return sorted(dates)
-    
+
     @staticmethod
     def now() -> datetime:
         """Returns current date with normalized time"""
-        return DateUtil.normalize_date(datetime.datetime.now())
-        
+        return DateUtil.normalize_date(datetime.now())
+
     @staticmethod
     def get_year_month(month: str, year: int = None) -> datetime:
         """Returns a datetime object in the format '%B' or '%b'"""
         year = year if year else DateUtil.now().year
         try:
-            return datetime.datetime.strptime(month, "%B").replace(year=year)
+            return datetime.strptime(month, "%B").replace(year=year)
         except ValueError:
-            return datetime.datetime.strptime(month, "%b").replace(year=year)
+            return datetime.strptime(month, "%b").replace(year=year)
 
     @staticmethod
     def is_within_days(date1: datetime, date2: datetime, days: int) -> bool:

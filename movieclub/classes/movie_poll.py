@@ -2,22 +2,61 @@ import logging
 
 import discord
 from discord import ui
-from discord import ui, Embed, ButtonStyle
+from discord import ui, Embed, Button,ButtonStyle
+from discord.ui import Button, View
 from holidays.countries.united_states import UnitedStates
 
 # Application-specific imports
 from .poll import Poll
 from ..constants import MOVIE_CLUB_LOGO
+from ..utilities.api_handlers.movie_data_fetcher import get_movie_discord_embed
 
+class MovieInteraction(View):
+    "Buttons for Approve, Edit and Reject actions"
+    def __init__(self):
+        super().__init__(timeout=60)  
+        approve_button = Button(label='Approve', custom_id='approve')
+        approve_button.style = ButtonStyle.green
+        self.add_item(approve_button)
+
+        edit_button = Button(label='Edit', custom_id='edit')
+        edit_button.style = ButtonStyle.secondary
+        self.add_item(edit_button)
+
+        reject_button = Button(label='Reject', custom_id='reject')
+        reject_button.style = ButtonStyle.red
+        self.add_item(reject_button)
+
+    @ui.button(custom_id='approve')
+    async def approve_button(self, button: ui.Button, interaction: discord.Interaction):
+        await interaction.response.send_message('Movie approved.')
+
+    @ui.button(custom_id='edit')
+    async def edit_button(self, button: ui.Button, interaction: discord.Interaction):
+        await interaction.response.send_message('Movie data edit feature not implemented yet.')
+
+    @ui.button(custom_id='reject')
+    async def reject_button(self, button: ui.Button, interaction: discord.Interaction):
+        await interaction.response.send_message('Movie rejected.')
+        
 class MoviePoll(Poll): 
     def __init__(self, bot, config, guild):  
         super().__init__(bot, config, guild, "movie_poll")
 
-    async def add_movie(self, ctx, action, month):
-        if action == "start":
-            pass
-        else:
-            await ctx.send('Invalid action. Use "start" or "end".')
+    async def add_movie(self, ctx, movie_name: str):
+        if not movie_name:
+            ctx.send("Movie name cannot be empty.")
+            return
+        movie_data = get_movie_discord_embed(movie_name)
+        if not movie_data:
+            ctx.send("Could not fetch movie data. Please check the name again.")
+            return
+        
+        logging.info(f"Movie data: {movie_data}")
+        embed = movie_data
+        
+        view = MovieInteraction()
+        await ctx.send(embed=embed)
 
     async def start_poll(self, ctx, action, month):
         if action == "start":

@@ -6,7 +6,7 @@ from typing import Literal, List
 import discord
 from discord import ui, Embed, Button, ButtonStyle, ActionRow
 from discord.ext import tasks, commands
-from discord.errors import NotFound, Forbidden, HTTPException
+from discord.errors import HTTPException
 
 # Application-specific imports
 from redbot.core import commands, Config
@@ -14,6 +14,9 @@ from redbot.core.bot import Red
 
 # Local imports
 from .classes.date_poll import DatePoll
+from .classes.movie_poll import MoviePoll
+from .utilities.api_handlers.movie_data_fetcher import get_movie_discord_embed
+
 
 # Initialize logging
 logging.basicConfig(level=logging.DEBUG)
@@ -39,10 +42,13 @@ class MovieClub(commands.Cog):
         for poll in self.active_polls.values():
             try:
                 await poll.keep_poll_alive() 
+            except HTTPException as http_e:
+                message_id = await poll.get_message_id()
+                logging.error(f"HTTPException while keeping poll {message_id} alive: {http_e}")
+                error_polls.append(poll.poll_id)
             except Exception as e:
                 message_id = await poll.get_message_id()
                 logging.error(f"Unable to keep poll {message_id} alive due to: {str(e)}") 
-                error_polls.append(poll.poll_id)
         for error_poll in error_polls:
             del self.active_polls[error_poll]
     
@@ -125,33 +131,56 @@ class MovieClub(commands.Cog):
         else:
             await ctx.send('Invalid action. Use "start" or "end".') 
 
-    @commands.guild_only()  # type:ignore
-    @commands.bot_has_permissions(embed_links=True)
-    @commands.mod_or_permissions(manage_messages=True)
-    @movieclub.command()
-    async def movie(self, ctx, action: str, movie_info: str = None):
-        if action == "add":
-            # Add movie
-            pass
-        elif action == "remove":
-            # Remove movie
-            pass
-        else:
-            await ctx.send('Invalid action. Use "add" or "remove".')
+    @movieclub.group()
+    async def movie(self, ctx):
+        if ctx.invoked_subcommand is None:
+            # Check for required permissions
+            permissions = ctx.channel.permissions_for(ctx.guild.me)
+            if not permissions.send_messages:
+                await ctx.author.send('I do not have permissions to send messages in the channel.')
+            else:
+                await ctx.send('Invalid movie command passed TEST!!!..')
 
-    @commands.guild_only()  # type:ignore
+    @commands.guild_only()  
     @commands.bot_has_permissions(embed_links=True)
     @commands.mod_or_permissions(manage_messages=True)
-    @poll.command()
-    async def movie(self, ctx, action: str):
-        if action == "start":
-            # Start movie poll
-            pass
-        elif action == "end":
-            # End movie poll
-            pass
+    @movie.command(name="add")
+    async def add_movie(self, ctx, *movie_name : str):
+        movie_name = ' '.join(movie_name)
+        logging.debug(f"movie command received with movie_name={movie_name}")
+        if movie_name is not None:
+            logging.debug(f"Adding movie {movie_name} to the poll")
+            # Get an instance of the MoviePoll class
+            movie_poll = MoviePoll(self.bot, self.config, ctx.guild.id)
+            
+            # Check if the movie already exists
+            # if movie_poll.movie_exists(movie_name):
+            #     await ctx.send(f"'{movie_name}' is already in the movie poll.")
+            # else:
+                # Add the movie to the poll
+            success = await movie_poll.add_movie(ctx, movie_name)
+            
+            if success:
+                await ctx.send(f"'{movie_name}' has been added to the movie poll.")
+            else:
+                await ctx.send(f"There was an error adding '{movie_name}' to the movie poll.")
         else:
-            await ctx.send('Invalid action. Use "start" or "end".')
+            await ctx.send('Please provide a movie name.')
+
+
+    # @commands.guild_only()  # type:ignore
+    # @commands.bot_has_permissions(embed_links=True)
+    # @commands.mod_or_permissions(manage_messages=True)
+    # @poll.command()
+    # async def movie(self, ctx, action: str):
+    #     if action == "start":
+    #         # Start movie poll
+    #         pass
+    #     elif action == "end":
+    #         # End movie poll
+    #         pass
+    #     else:
+    #         await ctx.send('Invalid action. Use "start" or "end".')
 
     @commands.guild_only()  
     @commands.bot_has_permissions(embed_links=True)
