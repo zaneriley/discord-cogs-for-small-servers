@@ -69,7 +69,7 @@ class MovieClub(commands.Cog):
                 if poll_id == "date_poll":
                     self.active_polls[poll_id] = DatePoll(self.bot, self.config, guild)
                 elif poll_id == "movie_poll":
-                    pass
+                    self.active_polls[poll_id] = MoviePoll(self.bot, self.config, guild)
         
         for poll in self.active_polls.values():
             try:
@@ -146,7 +146,6 @@ class MovieClub(commands.Cog):
             logging.debug(f"movie command received with action={action}")
             try:
                 stored_movies = await self.config.guild(ctx.guild).movies()
-                logging.debug(f"stored_movies={stored_movies}")
                 if stored_movies:
                     poll = MoviePoll(self.bot, self.config, ctx.guild)
                     await poll.write_poll_to_config()

@@ -1,11 +1,13 @@
 import logging
 from typing import Iterable
 from collections import defaultdict
+import random
 
 import discord
 from discord import ui
 from discord import ui, Embed, Button, ButtonStyle
 from discord.ui import Button, View
+from discord.errors import HTTPException
 from holidays.countries.united_states import UnitedStates
 
 # Application-specific imports
@@ -15,6 +17,29 @@ from ..utilities.api_handlers.movie_data_fetcher import movie_data_to_discord_fo
 
 MAX_BUTTON_LABEL_SIZE = 16
 MAX_BUTTONS_IN_ROW = 5
+
+first_vote_endings = [
+    "You know what's going on in the world. You know what culture looks like, you know the names of trends, and you certainly know what movie to vote for.",
+    "The world doesn't want people to vote this way. But you did.",
+    "Hell yeah! This is a real movie, the movie they played on the moon, the movie they played for the first aliens to make contact with us, the movie they'll play when the world ends.",
+    "A profound choice. It speaks volumes about your taste, your ethos... or it was random ",
+    "The movie (that you chose) said it feels appreciated. If movies could feel, that's how it would feel.",
+    "It worked, the shadows no longer follow you",
+    "This movie is a rare movie, one of those that see their interest increase over time, and will long be remembered for having a great influence on the state of motion pictures.",
+    "It's about time you picked one.",
+    "You aren't sure what decisions led you here, but it feels right.",
+    "You have seen the face of Cinema, and she smiled at you.",
+    "You are prone to picking... eccentric movies.",
+    "Finally, an actual vote! We're thrilled to finally get to count this.",
+    "This is the right action. This is the right choice.",
+    "It was the only possible thing in that moment. The movie understood you.",
+    "There is no shame in simplicity. Maybe you just want to watch a movie without too many thoughts and feelings. Your simple movie choice is appreciated.",
+    "You say the name of the movie again, to yourself. _{self.label}_... It feels good to say it, to hear it. You stroke your cheek. This is smooth."
+]
+
+next_vote_endings = [
+
+]
 
 class MovieInteraction(View):
     "Buttons for Approve, Edit and Reject actions"
@@ -48,21 +73,8 @@ class MoviePoll(Poll):
     def __init__(self, bot, config, guild):  
         super().__init__(bot, config, guild, "movie_poll")
 
-    # async def add_movie(self, ctx, movie_name: str):
-    #     if not movie_name:
-    #         ctx.send("Movie name cannot be empty.")
-    #         return
-    #     stored_movies = defaultdict(dict, await self.config.guild(self.guild).movies())
-    #     movie_data = get_movie_discord_embed(movie_name)
-    #     if not movie_data:
-    #         ctx.send("Could not fetch movie data. Please check the name again.")
-    #         return
-        
-    #     logging.info(f"Movie data: {movie_data}")
-    #     embed = movie_data
-        
-    #     view = MovieInteraction()
-    #     await ctx.send(embed=embed)
+    async def get_stored_movies(self):
+        return await self.config.guild(self.guild).movies()
 
     async def start_poll(self, ctx, action, movies):
         if action == "start":
@@ -90,7 +102,7 @@ class MoviePoll(Poll):
         try:
             logging.debug("Clearing votes and user votes, setting Movie Poll as inactive.")
             votes = await self.get_votes()
-            stored_movies = defaultdict(dict, await self.config.guild(ctx.guild).movies())
+            stored_movies = defaultdict(dict, await self.get_stored_movies())
             winner_movie = max(votes, key=votes.get) if votes else None
             winner_movie_data = stored_movies.get(winner_movie)
             logging.debug(f"Winner movie data: {winner_movie_data}")
@@ -112,8 +124,10 @@ class MoviePoll(Poll):
         poll_message = await self._fetch_poll_message()
         if poll_message:
             try:
+                
                 logging.debug("Editing message...")
-                view = await self.build_view()
+                stored_movies = defaultdict(dict, await self.get_stored_movies())
+                view = await self.build_view(stored_movies.keys())
                 await poll_message.edit(view=view)
                 logging.debug("Message edited.")
             except HTTPException as e:
@@ -123,31 +137,32 @@ class MoviePoll(Poll):
     async def restore_poll(self):
         poll_message = await self._fetch_poll_message()
         if poll_message is None:
+            logging.debug("Poll message not found.")
             return
-        # date_votes_dict = await self.config.date_votes()
-        # date_votes = {datetime.datetime.strptime(date_string, "%a, %b %d"): vote for date_string, vote in date_votes_dict.items()}
-        date_strings = await self.get_buttons()
-        dates = [datetime.datetime.strptime(date_string, "%a, %b %d, %Y") for date_string in date_strings]
-        view = DatePollView(dates, self.config, self.guild, self.poll_id)
+        
+        stored_movies = defaultdict(dict, await self.get_stored_movies())
+        
+        view = await self.build_view(stored_movies.keys())
         await poll_message.edit(view=view)
     
     async def build_view(self, movie_names: Iterable[str]) -> discord.ui.View:
         view = discord.ui.View()
         total_length = 0
+        logging.debug(f"movie_names: {movie_names}")
         for movie_name in movie_names:
             total_length += len(movie_name)
             movie_button = self.MovieButton(label=movie_name, movie_poll=self)
             view.add_item(movie_button)  # Add buttons to the view
 
-        if total_length >= 66:
-            reduction_value = total_length - 66
-            longest_label_length = max(len(movie_name) for movie_name in movie_names)
-            for movie_button in view.children:
-                if len(movie_button.label) > reduction_value:
-                    movie_button.label = movie_button.label[:-(reduction_value + 3)] + "..."
-                reduction_value -= longest_label_length - len(movie_button.label)
-                if reduction_value <= 0:
-                    break
+        # if total_length >= 66:
+        #     reduction_value = total_length - 66
+        #     longest_label_length = max(len(movie_name) for movie_name in movie_names)
+        #     for movie_button in view.children:
+        #         if len(movie_button.label) > reduction_value:
+        #             movie_button.label = movie_button.label[:-(reduction_value + 3)] + "..."
+        #         reduction_value -= longest_label_length - len(movie_button.label)
+        #         if reduction_value <= 0:
+        #             break
 
         return view
     
@@ -222,13 +237,14 @@ class MoviePoll(Poll):
             logging.info(f"User {user_id} old movie is {old_movie}")
             if not old_movie:
                 await self.movie_poll.add_vote(user_id, self.label)
-                message = f"You voted for {self.label}"
+                message = f"You voted for **{self.label}**.\n\n" + random.choice(first_vote_endings)
             elif old_movie == self.label:
                 await self.movie_poll.remove_vote(user_id)
-                message = f"Your vote has been removed from {old_movie}"
+                message = f"Your vote has been removed from **{old_movie}**. \n\nDon't forget to vote for another movie!"
             else:
                 await self.movie_poll.remove_vote(user_id)
                 await self.movie_poll.add_vote(user_id, self.label)
-                message = f"Your vote has been removed from {old_movie} and added to {self.label}"
+                message = f"You voted for **{self.label}**.\n\nYour previous vote for **{old_movie}** has been removed."
            
             await interaction.response.send_message(message)
+

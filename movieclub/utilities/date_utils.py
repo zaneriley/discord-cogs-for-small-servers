@@ -9,6 +9,11 @@ class DateUtil:
     def normalize_date(date: datetime) -> datetime:
         """Returns a date with the time set to 00:00:00 for consistent comparison"""
         return datetime.combine(date.date(), datetime.min.time())
+    
+    @staticmethod
+    def normalize_date(date: datetime.date) -> datetime:
+        """Returns a date with the time set to 00:00:00 for consistent comparison"""
+        return datetime.combine(date, datetime.min.time())
 
     @staticmethod
     def get_presentable_date(date: datetime) -> str:
@@ -26,9 +31,9 @@ class DateUtil:
         return date - timedelta(days=days)
 
     @staticmethod
-    def str_to_date(date_strings: List[str], format_str: str = '%a, %b %d, %Y') -> List[datetime]:
-        """Converts a list of date strings to a list of datetime objects using the specified format string"""
-        return [datetime.strptime(date_string, format_str) for date_string in date_strings]
+    def str_to_date(date_string: str, format_str: str = '%a, %b %d, %Y') -> List[datetime]:
+        """Converts a date string to a datetime object using the specified format string"""
+        return datetime.strptime(date_string, format_str)
 
     @staticmethod
     def sort_dates(dates: List[datetime]) -> List[datetime]:

@@ -63,9 +63,10 @@ class Poll(ABC):
     async def get_buttons(self):
         return await self.config.guild(self.guild).polls.get_raw(self.poll_id, "buttons")
 
-    async def add_buttons(self, button):
-        buttons = await self.get_buttons()
-        buttons.append(button)
+    async def add_buttons(self, buttons):
+        existing_buttons = await self.get_buttons()
+        for button in buttons:
+            existing_buttons.append(button)
         await self.config.guild(self.guild).polls.set_raw(self.poll_id, "buttons", value=buttons)
 
     @abstractmethod
