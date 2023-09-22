@@ -1,6 +1,7 @@
 # Standard library imports
 import logging
 from typing import Literal, List
+from collections import defaultdict
 
 # Third-party library imports
 import discord
@@ -145,12 +146,12 @@ class MovieClub(commands.Cog):
             logging.debug(f"movie command received with action={action}")
             try:
                 stored_movies = await self.config.guild(ctx.guild).movies()
+                logging.debug(f"stored_movies={stored_movies}")
                 if stored_movies:
                     poll = MoviePoll(self.bot, self.config, ctx.guild)
                     await poll.write_poll_to_config()
                     await poll.start_poll(ctx, action, stored_movies)
                     self.active_polls["movie_poll"] = poll  
-                    await ctx.send('A movie poll is activated.')
                 else:
                     await ctx.send('No movies found in the movie poll. Please add movies using the `movie add` command.')
 
@@ -194,13 +195,14 @@ class MovieClub(commands.Cog):
         logging.debug(f"movie command received with movie_name={movie_name}")
         if movie_name:
             logging.debug(f"Adding movie {movie_name} to the poll")
-            stored_movies = await self.config.guild(ctx.guild).movies() 
-            movie_data = get_movie_discord_embed(movie_name)
-            if movie_data and movie_name not in stored_movies:
-                stored_movies[movie_name] = movie_data.to_dict() 
+            stored_movies = defaultdict(dict, await self.config.guild(ctx.guild).movies())
+            movie_data, discord_format = get_movie_discord_embed(movie_name)
+            movie_title = movie_data.get('title', movie_name)
+            if movie_title not in stored_movies:
+                stored_movies[movie_title] = movie_data
                 await self.config.guild(ctx.guild).movies.set(stored_movies)
-                await ctx.send(embed=movie_data)
-                await ctx.send(f"'{movie_name}' has been added to the movie poll.")
+                await ctx.send(embed=discord_format)
+                await ctx.send(f"'{movie_title}' has been added to the movie poll.")
             else:
                 await ctx.send(f"There was an error adding '{movie_name}' to the movie poll.")
         else:

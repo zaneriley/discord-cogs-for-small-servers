@@ -39,16 +39,16 @@ def fetch_and_normalize_movie_data(movie_name: str) -> Dict[str, Union[str, Any]
 
         # Map data in our specific format and merge it
         movie_data: Dict[str, Union[str, Any]] = {
-            'title': letterboxd_details.get('title','') or tmdb_details.get('title', ''),
-            'year_of_release': tmdb_details.get('year_of_release', '') or letterboxd_details.get('year_of_release', ''),
-            'tagline': tmdb_details.get('tagline', '') or letterboxd_details.get('tagline', ''),
-            'description': tmdb_details.get('description', '') or letterboxd_details.get('description', ''),
-            'genre': tmdb_details.get('genres', []) or letterboxd_details.get('genres', []),
-            'runtime': tmdb_details.get('runtime', 0) or letterboxd_details.get('runtime', 0),
-            'rating':  letterboxd_details.get('average_rating', 'N/A'),
+            'title': letterboxd_details.get('title', '') or tmdb_details.get('title', ''),
+            'year_of_release': letterboxd_details.get('year_of_release', '') or tmdb_details.get('year_of_release', ''),
+            'tagline': letterboxd_details.get('tagline', '') or tmdb_details.get('tagline', ''),
+            'description': letterboxd_details.get('description', '') or tmdb_details.get('description', ''),
+            'genre': letterboxd_details.get('genres', []) or tmdb_details.get('genres', []),
+            'runtime': letterboxd_details.get('runtime', 0) or tmdb_details.get('runtime', 0),
+            'rating': letterboxd_details.get('average_rating', 'N/A'),
             'reviews': reviews,
             'number_of_reviewers': letterboxd_details.get('number_of_reviewers', 0),
-            'trailer_url': tmdb_details.get('trailer_link', '') or letterboxd_details.get('trailer_link', ''),
+            'trailer_url': letterboxd_details.get('trailer_link', '') or tmdb_details.get('trailer_link', ''),
             'letterboxd_link': letterboxd_details.get('letterboxd_link', ''),
             'banner_image': letterboxd_details.get('banner_image', ''),
         }
@@ -90,7 +90,7 @@ def movie_data_to_discord_format(movie_data: Dict[str, Any]) -> Dict[str, Any]:
         tagline = movie_data.get('tagline')
         description_text = movie_data.get('description', '')
 
-        description = f"`{tagline.upper() if tagline else 'No tagline available'}`\n\n{description_text}\n\u200B"
+        description = f"`{tagline.upper() if tagline else 'No tagline available'}`\n\n{description_text}"
 
         author_value = "TODO"  # Value derived from movie_data, hard-coded or from an external source 
         fields = [
@@ -134,7 +134,7 @@ def get_movie_discord_embed(movie_name:str) -> Dict[str, Any]:
             if discord_format:
                 logging.info(f"Generated Discord message for {movie_name}.")
                 logging.info(f"Discord message: {discord_format}")
-                return discord_format
+                return movie_data, discord_format
         else:
             raise Exception(f"Failed to fetch movie data for {movie_name}.")
     except Exception as e:
