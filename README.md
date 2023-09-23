@@ -1,18 +1,22 @@
 # Discord Cogs for Small Servers
 
-![MovieClub Bot](movieclub.png)
-
-This repository contains a collection of Discord cogs designed specifically for small servers. These cogs provide various functionalities to enhance the server experience and make it more engaging for the community.
+This repository contains a collection of Discord cogs designed specifically for small servers (less than 50 people). These cogs focus on getting people (e.g. friends, family) to connect. _Please note:_ These cogs are currently built for my own particular server and style (e.g. response messages), but I welcome any PRs if you'd like to help generalize/customize them.
 
 ## Features
 
-### Movie Club
-Schedule movie nights more easily by conducting polls and manage movie suggestions. This supposes that you will coordinate a way to watch the movie over Voice Chat in Discord.
+
+![MovieClub](https://github.com/zaneriley/discord-cogs-for-small-servers/blob/main/movieclub/cog-logo.png?raw=true)
+
+Schedule movie nights more easily by conducting polls and managing movie suggestions. 
+
+- [x] Add movies to consider with `!movieclub movie add {film title}`. This will automatically pull info from TMDB and Letterboxd and load it into the next poll.
+- [x] Decide on a date with `!movieclub poll date start` which will find available dates at the end of the month. It even accounts for (US) holidays.
+- [x] Choose a movie with `!movieclub poll movie start` which loads all suggest movies into a poll for a vote. 
 
 Next:
-[ ] **Event Scheduler**: Plan and coordinate events, RSVP, and send reminders.  Done!
-[ ] **Movie journal**: Automatically create a forum channel with each film, allowing users to discuss the movie afterward.
-[ ] **Member Stats**: Track and display user activity and engagement on the server.
+- [ ] **Event Scheduler**: Plan and coordinate discord events, RSVPs, and send reminders. 
+- [ ] **Movie journal**: Automatically create a forum channel with each film, allowing users to discuss the movie afterward.
+- [ ] **Member Stats**: Track and display user activity and engagement on the server.
 
 ## Requirements
 
