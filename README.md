@@ -1,9 +1,11 @@
 # Discord Cogs for Small Servers
 
-This repository contains a collection of Discord cogs designed specifically for small servers (less than 50 people). These cogs focus on getting people (e.g. friends, family) to connect. _Please note:_ These cogs are currently built for my own particular server and style (e.g. response messages), but I welcome any PRs if you'd like to help generalize/customize them.
+This repository contains a collection of Discord cogs tailored for smaller server communities, particularly those with less than 50 members These cogs focus on getting people (e.g. friends, family) to connect. 
+
+**heads up:** These cogs are currently built for my particular servers and style (e.g. response messages), but I welcome any PRs if you'd like to generalize/customize them for your server.
+
 
 ## Features
-
 
 ![MovieClub](https://github.com/zaneriley/discord-cogs-for-small-servers/blob/main/movieclub/cog-logo.png?raw=true)
 
@@ -35,7 +37,7 @@ TBD
 TBD
 
 ## Contributing
-
+git push
 Contributions are welcome! If you find any issues or have ideas for improvements, please create an issue or submit a pull request. 
 
 ## License
