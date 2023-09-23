@@ -2,6 +2,7 @@ import logging
 from typing import Iterable
 from collections import defaultdict
 import random
+import re
 
 import discord
 from discord import ui
@@ -12,7 +13,7 @@ from holidays.countries.united_states import UnitedStates
 
 # Application-specific imports
 from .poll import Poll
-from ..constants import MOVIE_CLUB_LOGO
+from ..constants import MOVIE_CLUB_LOGO, DISCORD_EMBED_COLOR
 from ..utilities.api_handlers.movie_data_fetcher import movie_data_to_discord_format
 
 MAX_BUTTON_LABEL_SIZE = 16
@@ -34,11 +35,23 @@ first_vote_endings = [
     "This is the right action. This is the right choice.",
     "It was the only possible thing in that moment. The movie understood you.",
     "There is no shame in simplicity. Maybe you just want to watch a movie without too many thoughts and feelings. Your simple movie choice is appreciated.",
-    "You say the name of the movie again, to yourself. _{self.label}_... It feels good to say it, to hear it. You stroke your cheek. This is smooth."
+    "You say the name of the movie again, to yourself. _{self.label}_... It feels good to say it, to hear it. You stroke your cheek. This is smooth.",
+    "People didn't rate this movie highly but you'll be damned if that stopped you from voting for it. That's the spirit."
 ]
 
 next_vote_endings = [
+    "Oh right, this movie is faster, you think. Maybe it has more power. Maybe it has more potential. Maybe the movie is keeping score. Of course it is. Every movie is keeping score.",
+    "You feel a little more confident in your choice this time. You feel a little more confident in yourself.",
+    "This one is more real. This is your real vote.",
+    "You couldn't live with your mistake, and are now living with another one. Live with it.",
+    "This movie makes you want to paint. Not that you are an artist. You've never done art, you can't do art. But you want to. Paint is cheap. It's very cheap. Just get the cheap one. That's all.",
+    "Wow! You're really giving it to them! You're good at this! You've considered a great multiplicity of factors before coming to your choice. They all seemed to point in the same direction. You voted correctly.",
+    ""
+]
 
+too_many_votes_endings = [
+    "You can't vote for more than one movie. You know that. You know that.",
+    "The number of times you've changed your vote is not up to you or anyone else, and nobody at Movie Club has the authority to bring up the matter with you.",
 ]
 
 class MovieInteraction(View):
@@ -72,6 +85,8 @@ class MovieInteraction(View):
 class MoviePoll(Poll): 
     def __init__(self, bot, config, guild):  
         super().__init__(bot, config, guild, "movie_poll")
+        self.vote_change_counter = defaultdict(int)
+        self.original_message_content = None  # Add this line 
 
     async def get_stored_movies(self):
         return await self.config.guild(self.guild).movies()
@@ -100,17 +115,19 @@ class MoviePoll(Poll):
 
     async def end_poll(self, ctx):
         try:
+            target_role = await self.get_target_role()
             logging.debug("Clearing votes and user votes, setting Movie Poll as inactive.")
             votes = await self.get_votes()
             stored_movies = defaultdict(dict, await self.get_stored_movies())
-            winner_movie = max(votes, key=votes.get) if votes else None
+            winner_movie = max(votes, key=votes.get) if any(votes.values()) else None
             winner_movie_data = stored_movies.get(winner_movie)
             logging.debug(f"Winner movie data: {winner_movie_data}")
 
             if winner_movie:
                 trailer_url = winner_movie_data.get('trailer_url')
-                trailer_message = f"\n\n[Trailer]({trailer_url})" if trailer_url else ""
-                await ctx.send(f"\u200B\n{MOVIE_CLUB_LOGO}\n\n**{winner_movie}** with {votes[winner_movie]} votes!{trailer_message}")
+                # TODO: check to see if target_role is None
+                trailer_message = f"\n[Watch the trailer]({trailer_url})\n\n\u200B See you <@&{target_role}> holders there! <:fingercrossed:1103626715663712286>\n\u200B" if trailer_url else ""
+                await ctx.send(f"\u200B\n{MOVIE_CLUB_LOGO}\n\nThe most voted movie is:\n\n**{winner_movie}**! {trailer_message}")
             else:
                 await ctx.send("No votes were cast in the movie poll.")
 
@@ -229,6 +246,61 @@ class MoviePoll(Poll):
             super().__init__(style=discord.ButtonStyle.primary, label=label)
             self.movie_poll = movie_poll
 
+        
+        async def update_percentage_voted_text(self, interaction: discord.Interaction):
+            # Your logic for updating the message goes here
+            unique_voters = set()  
+            user_votes = defaultdict(dict, await self.movie_poll.get_user_votes())
+            logging.info(f"update percentage User votes: {user_votes.keys()}")
+            for user in user_votes.keys():
+                unique_voters.add(user)
+            logging.debug(f"update percentage unique voters: {unique_voters}")
+
+            target_role = await self.movie_poll.get_target_role()
+            if target_role:
+                target_role = discord.utils.get(interaction.guild.roles, id=target_role)
+                target_role_member_ids = set(str(member.id) for member in target_role.members) if target_role else {interaction.guild.members}
+            else:
+                target_role_member_ids = set(member.id for member in interaction.guild.members)
+            logging.info(f"update percentage target role member ids: {target_role_member_ids}")
+
+            unique_role_voters = unique_voters.intersection(target_role_member_ids)
+            
+            percentage_voted = (len(unique_role_voters) / len(target_role_member_ids)) * 100
+
+                      # Check if original_message_content is None, if so, store the current message content
+            if self.movie_poll.original_message_content is None:
+                self.movie_poll.original_message_content = interaction.message.content
+
+            # TODO: store this in guild config and don't use regex
+            original_message = interaction.message
+
+            voter_count = len(unique_role_voters)
+            more_to_go = len(target_role_member_ids) - len(unique_role_voters)
+            passholder_text = "passholder" if voter_count == 1 else "passholders"
+            if len(unique_role_voters) == 0:
+                percentage_voted_text = ""
+            else:
+                percentage_voted_text = f"<:fingercrossed:1103626715663712286> {voter_count} movie club {passholder_text} voted, {more_to_go} more to go! ({percentage_voted:.2f}% participation)"
+            logging.debug(f"Percentage voted text: {percentage_voted_text}")
+            def update_string(message: str, voter_count: int, more_to_go: int, percentage_voted: float) -> str:
+                pattern = r"(<:fingercrossed:1103626715663712286> \d+ movie club passholder(s)? voted, \d+ more to go! \(\d+(\.\d+)?% participation\)\n\u200B)"
+                match = re.search(pattern, message)
+                passholder_text = "passholder" if voter_count == 1 else "passholders"
+                new_string = f"<:fingercrossed:1103626715663712286> {voter_count} movie club {passholder_text} voted, {more_to_go} more to go! ({percentage_voted:.2f}% participation)\n\u200B"
+                if match:
+                    old_string = match.group(1)
+                    if voter_count == 0:
+                        message = message.replace(old_string, "")
+                    else:
+                        message = message.replace(old_string, new_string)
+                elif voter_count > 0:
+                    message += "\n" + new_string
+                return message
+            updated_message = update_string(original_message.content, voter_count, more_to_go, percentage_voted)
+            logging.debug(f"Updating message with percentage voted text: {percentage_voted_text}")
+            await original_message.edit(content=updated_message)
+
         async def callback(self, interaction: discord.Interaction):
             """Updates the vote for a movie when a button is clicked."""
             user_id = str(interaction.user.id)  
@@ -237,14 +309,18 @@ class MoviePoll(Poll):
             logging.info(f"User {user_id} old movie is {old_movie}")
             if not old_movie:
                 await self.movie_poll.add_vote(user_id, self.label)
-                message = f"You voted for **{self.label}**.\n\n" + random.choice(first_vote_endings)
+                message = f"You voted for `{self.label}`." + f"\n\n_{random.choice(first_vote_endings)}_"
             elif old_movie == self.label:
                 await self.movie_poll.remove_vote(user_id)
-                message = f"Your vote has been removed from **{old_movie}**. \n\nDon't forget to vote for another movie!"
+                message = f"Your vote has been removed from `{old_movie}`. \n\nDon't forget to vote for another movie!"
             else:
-                await self.movie_poll.remove_vote(user_id)
-                await self.movie_poll.add_vote(user_id, self.label)
-                message = f"You voted for **{self.label}**.\n\nYour previous vote for **{old_movie}** has been removed."
-           
-            await interaction.response.send_message(message)
+                if self.movie_poll.vote_change_counter[user_id] >= 3:  # Check if user has changed vote more than 3 times
+                    message = f"You voted for `{self.label}`.\n\nYour previous vote for `{old_movie}` has been removed." + f"\n\n_{random.choice(too_many_votes_endings)}_"
+                else:
+                    await self.movie_poll.remove_vote(user_id)
+                    await self.movie_poll.add_vote(user_id, self.label)
+                    self.movie_poll.vote_change_counter[user_id] += 1  # Increment the counter
+                    message = f"You voted for `{self.label}`.\n\nYour previous vote for `{old_movie}` has been removed." + f"\n\n_{random.choice(next_vote_endings)}_"
+            await self.update_percentage_voted_text(interaction)
+            await interaction.response.send_message(message, ephemeral=True)
 
