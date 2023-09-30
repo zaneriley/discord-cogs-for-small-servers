@@ -13,11 +13,12 @@ Schedule movie nights more easily by conducting polls and managing movie suggest
 
 - [x] Add movies to consider with `!movieclub movie add {film title}`. This will automatically pull info from TMDB and Letterboxd and load it into the next poll.
 - [x] Decide on a date with `!movieclub poll date start` which will find available dates at the end of the month. It even accounts for (US) holidays.
-- [x] Choose a movie with `!movieclub poll movie start` which loads all suggest movies into a poll for a vote. 
+- [x] Choose a movie with `!movieclub poll movie start` which loads all suggest movies into a poll for a vote.
+- [X] **Movie journal**: Automatically create a forum channel with each film, allowing users to discuss the movie afterward. You can also make one manually by doing `!movieclub movie thread {film title}`
 
 Next:
 - [ ] **Event Scheduler**: Plan and coordinate discord events, RSVPs, and send reminders. 
-- [ ] **Movie journal**: Automatically create a forum channel with each film, allowing users to discuss the movie afterward.
+
 - [ ] **Member Stats**: Track and display user activity and engagement on the server.
 
 ## Requirements
@@ -30,14 +31,20 @@ To use these cogs, you need the following:
 
 ## Installation
 
-TBD
+Follow these steps to set up your development environment:
 
-## Usage
+**Step 1: Clone the Repository**
+
+Clone this repository to your local machine:
+
+```bash
+git clone git@github.com:zaneriley/discord-cogs-for-small-servers.git
+```
 
 TBD
 
 ## Contributing
-git push
+
 Contributions are welcome! If you find any issues or have ideas for improvements, please create an issue or submit a pull request. 
 
 ## License
