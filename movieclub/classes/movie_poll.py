@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable
+from typing import Dict, List, Union, Optional, Iterable
 from collections import defaultdict
 import random
 import re
@@ -15,6 +15,7 @@ from holidays.countries.united_states import UnitedStates
 from .poll import Poll
 from ..constants import MOVIE_CLUB_LOGO, DISCORD_EMBED_COLOR
 from ..utilities.api_handlers.movie_data_fetcher import movie_data_to_discord_format
+from ..utilities.discord_utils import create_discord_thread
 
 MAX_BUTTON_LABEL_SIZE = 16
 MAX_BUTTONS_IN_ROW = 5
@@ -35,8 +36,8 @@ first_vote_endings = [
     "This is the right action. This is the right choice.",
     "It was the only possible thing in that moment. The movie understood you.",
     "There is no shame in simplicity. Maybe you just want to watch a movie without too many thoughts and feelings. Your simple movie choice is appreciated.",
-    "You say the name of the movie again, to yourself. _{self.label}_... It feels good to say it, to hear it. You stroke your cheek. This is smooth.",
-    "People didn't rate this movie highly but you'll be damned if that stopped you from voting for it. That's the spirit."
+    "You say the name of the movie again, to yourself... It feels good to say it, to hear it. You stroke your cheek. This is smooth.",
+    "People didn't rate this movie highly but you'll be damned if that stopped you from voting for it."
 ]
 
 next_vote_endings = [
@@ -112,7 +113,7 @@ class MoviePoll(Poll):
             await self.set_poll_channel_id(msg.channel.id)
         else:
             await ctx.send('Invalid action. Use "start" or "end".')
-
+    
     async def end_poll(self, ctx):
         try:
             target_role = await self.get_target_role()
@@ -121,18 +122,24 @@ class MoviePoll(Poll):
             stored_movies = defaultdict(dict, await self.get_stored_movies())
             winner_movie = max(votes, key=votes.get) if any(votes.values()) else None
             winner_movie_data = stored_movies.get(winner_movie)
-            logging.debug(f"Winner movie data: {winner_movie_data}")
+            logging.debug(f"Winner movie: {winner_movie}, Stored movies: {stored_movies.keys()}")
 
             if winner_movie:
                 trailer_url = winner_movie_data.get('trailer_url')
                 # TODO: check to see if target_role is None
                 trailer_message = f"\n[Watch the trailer]({trailer_url})\n\n\u200B See you <@&{target_role}> holders there! <:fingercrossed:1103626715663712286>\n\u200B" if trailer_url else ""
                 await ctx.send(f"\u200B\n{MOVIE_CLUB_LOGO}\n\nThe most voted movie is:\n\n**{winner_movie}**! {trailer_message}")
+                # TODO: Make this configurable
+                channel_id = 1064523211905183784
+                thread_name = f"{winner_movie} (Movie Club)"
+                thread_content = await self.generate_movie_thread(winner_movie)
+                await create_discord_thread(ctx, channel_id=channel_id, thread_name=thread_name, thread_content=thread_content)
             else:
                 await ctx.send("No votes were cast in the movie poll.")
 
             await self.remove_poll_from_config()
             logging.debug("Movie Poll ended and set as inactive successfully.")
+        
         except Exception as e:
             logging.error(f"Unable to end movie poll due to: {str(e)}")
 
@@ -241,6 +248,84 @@ class MoviePoll(Poll):
         # Implement the method here
         pass
 
+    async def generate_movie_thread(self, movie_name: str) -> str:
+        # Fetch the movie data
+        stored_movies = await self.get_stored_movies()
+        movie_data = stored_movies.get(movie_name)
+
+        # Extract and format the details
+        tagline = f"`{movie_data.get('tagline').upper() if movie_data.get('tagline') else 'No tagline available'}`"
+        description = movie_data.get('description', '')
+        details = f"{', '.join(movie_data['genre'][:2])} · {movie_data['runtime']} mins"
+        rating = f"★ {movie_data['rating']} · {movie_data['number_of_reviewers']} fans"
+        more_links = f"[Trailer]({movie_data['trailer_url']}) · [Letterboxd]({movie_data['letterboxd_link']})"
+
+        # Compile the details into a message
+        message += f"{tagline}\n\n{description}\n\n**Details:** {details}\n**Rating:** {rating}\n**More:** {more_links}\n\n\u200B"
+
+        return message
+    
+    async def get_vote_progress(self, ctx) -> None:
+        NO_TARGET_ROLE_MSG = "No target role set for the movie poll."
+        TARGET_ROLE_NOT_FOUND_MSG = "Target role not found in the guild."
+        FETCH_USER_VOTES_ERROR_MSG = "Failed to fetch user votes."
+        GENERAL_ERROR_MSG = "An error occurred. Please try again later."
+        ORDINAL_SUFFIXES = {1: 'st', 2: 'nd', 3: 'rd'}
+
+        try:
+            target_role_id: Optional[int] = await self.get_target_role()
+            if not target_role_id:
+                logging.warning(NO_TARGET_ROLE_MSG)
+                await ctx.send(NO_TARGET_ROLE_MSG)
+                return
+            target_role = discord.utils.get(ctx.guild.roles, id=target_role_id)
+            if not target_role:
+                logging.error(TARGET_ROLE_NOT_FOUND_MSG)
+                await ctx.send(TARGET_ROLE_NOT_FOUND_MSG)
+                return
+
+            user_votes: Dict[int, str] = await self.get_user_votes()
+            if not user_votes:
+                logging.error(FETCH_USER_VOTES_ERROR_MSG)
+                await ctx.send(GENERAL_ERROR_MSG)
+                return
+
+            all_movies = await self.get_stored_movies()
+            target_role_member_ids = set(member.id for member in target_role.members)
+            voted_member_ids = set(int(user_id) for user_id in user_votes.keys())
+            non_voters = target_role_member_ids - voted_member_ids
+
+            movie_votes: Dict[str, List[str]] = {movie: [] for movie in all_movies}
+            for user_id, movie in user_votes.items():
+                movie_votes[movie].append(f"<@{user_id}>")
+
+            sorted_movies = sorted(movie_votes.items(), key=lambda x: len(x[1]), reverse=True)
+            message_lines: List[str] = []
+
+            for rank, (movie, voters) in enumerate(sorted_movies, 1):
+                suffix = ORDINAL_SUFFIXES.get(rank, 'th')
+                title = f"{rank}{suffix}: {movie}"
+                if voters:
+                    message_lines.append(f"\u200B\n{title} ({len(voters)} votes · {', '.join(voters)})")
+                else:
+                    message_lines.append(f"\u200B\n{title} (No votes, RIP)")
+
+            if non_voters:
+                non_voter_mentions = ', '.join([f"<@{member_id}>" for member_id in non_voters])
+                #TODO: add logic to handle target_role or entire guild depending on settings
+                message_lines.append(f"\nPeople who have not voted: {non_voter_mentions}")
+
+            await ctx.send("\n".join(message_lines))
+
+        except ValueError as ve:
+            logging.error(f"Value error in get_vote_progress: {ve}")
+            await ctx.send(GENERAL_ERROR_MSG)
+
+        except Exception as e:
+            logging.error(f"An error occurred in get_vote_progress: {e}", exc_info=True)
+            await ctx.send(GENERAL_ERROR_MSG)
+
+    
     class MovieButton(discord.ui.Button):
         def __init__(self, label: str, movie_poll: "MoviePoll"):
             super().__init__(style=discord.ButtonStyle.primary, label=label)

@@ -5,18 +5,19 @@ from collections import defaultdict
 
 # Third-party library imports
 import discord
-from discord import ui, Embed, Button, ButtonStyle, ActionRow
-from discord.ext import tasks, commands
+from discord import ui, Embed, Button, ButtonStyle, ActionRow, SelectMenu, SelectOption, TextInput, app_commands
+from discord.ext import tasks, commands as dpy_commands
 from discord.errors import HTTPException
 
 # Application-specific imports
-from redbot.core import commands, Config
+from redbot.core import commands, Config, app_commands
 from redbot.core.bot import Red
 
 # Local imports
 from .classes.date_poll import DatePoll
 from .classes.movie_poll import MoviePoll
 from .utilities.api_handlers.movie_data_fetcher import get_movie_discord_embed
+from .utilities.discord_utils import create_discord_thread
 
 
 # Initialize logging
@@ -168,6 +169,11 @@ class MovieClub(commands.Cog):
                 del self.active_polls["movie_poll"]  # remove poll from active polls using new poll_id
             else:
                 await ctx.send('No active movie poll in this channel.')
+        elif action.lower() == "votes":
+            if "movie_poll" in self.active_polls.keys():
+                await self.active_polls["movie_poll"].get_vote_progress(ctx)
+            else:
+                await ctx.send('No active movie poll in this channel.')
         else:
             await ctx.send('Invalid action. Use "start" or "end".') 
 
@@ -207,6 +213,42 @@ class MovieClub(commands.Cog):
         else:
             await ctx.send('Please provide a movie name.')
 
+    # !movieclub movie thread <movie_name>
+    @commands.guild_only()  
+    @commands.bot_has_permissions(embed_links=True)
+    @commands.mod_or_permissions(manage_messages=True)
+    @movie.command(name="thread")
+    async def add_thread(self, ctx, *movie_name : str):
+        movie_name = ' '.join(movie_name)
+        logging.debug(f"movie thread command received with movie_name={movie_name}")
+        if movie_name:
+            logging.debug(f"Creating thread for movie {movie_name}")
+            movie_data, discord_format = get_movie_discord_embed(movie_name)
+            logging.debug(f"movie_data: {movie_data}")
+            movie_name = movie_data.get('title', movie_name)
+            logging.debug(f"movie_name: {movie_name}")
+            #TODO: make configurable
+            channel_id = 1064523211905183784
+            
+            # Extract and format the details
+            tagline = f"`{movie_data.get('tagline').upper() if movie_data.get('tagline') else 'No tagline available'}`"
+            description = movie_data.get('description', '')
+            details = f"{', '.join(movie_data['genre'][:2])} · {movie_data['runtime']} mins"
+            rating = f"★ {movie_data['rating']} · {movie_data['number_of_reviewers']} fans"
+            more_links = f"[Trailer]({movie_data['trailer_url']})"
+
+            # Compile the details into a message
+            message = f"{tagline}\n\n{description}\n\n**Details:** {details}\n**Rating:** {rating}\n**More:** {more_links}\n\n\u200B"   
+            thread_name = f"{movie_name} (Movie Club)"
+            thread_content = message
+            await create_discord_thread(ctx, channel_id=channel_id, thread_name=thread_name, thread_content=thread_content)
+            await ctx.send(f"'{movie_name}' thread has been created.")
+            return message
+
+        else:
+            await ctx.send('Please provide a movie name.')
+
+
     @commands.guild_only()  
     @commands.bot_has_permissions(embed_links=True)
     @commands.mod_or_permissions(manage_messages=True)
@@ -216,6 +258,7 @@ class MovieClub(commands.Cog):
         await self.config.guild(ctx.guild).target_role.set(role.id)
         await ctx.send(f"The role for total member count in polls has been set to {role.name}.")
     
+
     @commands.guild_only()  # type:ignore
     @commands.bot_has_permissions(embed_links=True)
     @commands.mod_or_permissions(manage_messages=True)
@@ -223,12 +266,9 @@ class MovieClub(commands.Cog):
         """Restores the poll if the bot restarts while the poll is active."""
         await self.date_poll.restore_poll()
 
-    ## TODO: MOVE TO EVENT_SCHEDUPLER.PY
-    async def create_thread(self, ctx, channel_id: int):
-        """Tries to create a forum post in the specified channel."""
-        channel = self.bot.get_channel(channel_id)
-        if channel is None:
-            await ctx.send("Invalid channel ID.")
-            return
-        thread = await channel.create_thread(name="Hello World Thread", content="This is the first message in the thread.")
-        await thread.send("Hello, World!")
+    @app_commands.command()
+    @app_commands.guild_only()
+    async def hello(self, interaction: discord.Interaction):
+        await interaction.response.send_message("Hello World!", ephemeral=True)
+
+                
