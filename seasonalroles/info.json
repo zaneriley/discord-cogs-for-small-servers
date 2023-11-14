@@ -1,0 +1,22 @@
+{
+    "$schema": "https://raw.githubusercontent.com/Cog-Creators/Red-DiscordBot/V3/develop/schema/red_cog.schema.json",
+    "name": "Seasonal Roles",
+    "short": "Assigns discord roles based on the date.",
+    "description": "Assigns discord roles based on the date. Defaults to generalized/fictional (e.g. fall equinox) holidays, but can be configured to use specific holidays.",
+    "end_user_data_statement": "This cog does not persistently store any data or metadata about users.",
+    "install_msg": "Thanks for intalling the Festive Roles cog! I hope it helps you connect with your friends.",
+    "author": [
+        "zr"
+    ],
+    "required_cogs": {},
+    "requirements": ["dotenv"],
+    "tags": [
+        "roles",
+        "holidays",
+        "seasons"
+    ],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}
