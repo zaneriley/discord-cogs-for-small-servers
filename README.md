@@ -29,6 +29,14 @@ To use these cogs, you need the following:
 - **Discord.py**
 - **Red-DiscordBot**
 
+
+### SeasonalRoles
+Automatically assign and remove roles based on specified holidays and events. 
+
+- [x] Assigns and removes roles based on defined holidays (currently semi-ficitious holidays)
+- [x] Includes a way to dry run changes and force holidays, for one-offs
+- [x] Allows users to opt-out of seasonal roles
+
 ## Installation
 
 Follow these steps to set up your development environment:

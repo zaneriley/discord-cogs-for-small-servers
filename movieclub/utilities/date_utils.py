@@ -4,12 +4,13 @@ from typing import List
 # Third-party library imports
 from dateutil.relativedelta import relativedelta
 
+
 class DateUtil:
     @staticmethod
     def normalize_date(date: datetime) -> datetime:
         """Returns a date with the time set to 00:00:00 for consistent comparison"""
         return datetime.combine(date.date(), datetime.min.time())
-    
+
     @staticmethod
     def normalize_date(date: datetime.date) -> datetime:
         """Returns a date with the time set to 00:00:00 for consistent comparison"""
@@ -18,7 +19,7 @@ class DateUtil:
     @staticmethod
     def get_presentable_date(date: datetime) -> str:
         """Returns a date string in the format 'Mon, Sept 18'"""
-        return date.strftime('%a, %b %d')
+        return date.strftime("%a, %b %d")
 
     @staticmethod
     def add_days(date: datetime, days: int) -> datetime:
@@ -31,7 +32,9 @@ class DateUtil:
         return date - timedelta(days=days)
 
     @staticmethod
-    def str_to_date(date_string: str, format_str: str = '%a, %b %d, %Y') -> List[datetime]:
+    def str_to_date(
+        date_string: str, format_str: str = "%a, %b %d, %Y"
+    ) -> List[datetime]:
         """Converts a date string to a datetime object using the specified format string"""
         return datetime.strptime(date_string, format_str)
 

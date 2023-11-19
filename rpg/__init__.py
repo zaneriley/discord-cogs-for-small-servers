@@ -3,7 +3,7 @@ from pathlib import Path
 
 from redbot.core.bot import Red
 
-from .rpg import RPG
+from .rpg import RPG, Onboarding, Inventory
 
 with open(Path(__file__).parent / "info.json") as fp:
     __red_end_user_data_statement__ = json.load(fp)["end_user_data_statement"]
@@ -11,3 +11,5 @@ with open(Path(__file__).parent / "info.json") as fp:
 
 async def setup(bot: Red) -> None:
     await bot.add_cog(RPG(bot))
+    await bot.add_cog(Onboarding(bot))
+    await bot.add_cog(Inventory(bot))

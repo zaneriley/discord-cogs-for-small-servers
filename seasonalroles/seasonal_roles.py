@@ -4,6 +4,7 @@ from redbot.core import commands, Config
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import re
+import base64
 
 import discord
 from discord.ext import tasks
@@ -16,6 +17,8 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 IDENTIFIER = int(os.getenv("IDENTIFIER", "1234567890"))
 GUILD_ID = int(os.getenv("GUILD_ID", "NO GUILD ID SET"))
+image_path = os.path.abspath(os.path.join("assets", "your-image.png"))
+logger.debug(f"Absolute image path: {image_path}")
 
 
 class SeasonalRoles(commands.Cog):
@@ -36,12 +39,12 @@ class SeasonalRoles(commands.Cog):
                 "New Year's Celebration": {
                     "date": "01-01",
                     "color": "#D3B44B",
-                    "image": "/assets/new-years-01.png",
+                    "image": "assets/new-years-01.png",
                 },
                 "Spring Blossom Festival": {
                     "date": "03-20",
                     "color": "#906D8D",
-                    "image": "/assets/spring-blossom-01.png",
+                    "image": "assets/spring-blossom-01.png",
                 },
                 "Kids Day": {"date": "05-05", "color": "#68855A"},
                 "Midsummer Festival": {"date": "06-21", "color": "#4A6E8A"},
@@ -49,19 +52,19 @@ class SeasonalRoles(commands.Cog):
                 "Friendship Day": {
                     "date": "08-02",
                     "color": "#8A6E5C",
-                    "image": "/assets/friendship-01.png",
+                    "image": "assets/friendship-01.png",
                 },
                 "Harvest Festival": {"date": "09-22", "color": "#D37C40"},
                 "Memories Festival": {"date": "10-15", "color": "#68855A"},
                 "Spooky Festival": {
                     "date": "10-31",
                     "color": "#A8574E",
-                    "image": "/assets/spooky-01.png",
+                    "image": "assets/spooky-01.png",
                 },
                 "Winter Festival": {
                     "date": "12-21",
                     "color": "#6C8893",
-                    "image": "/assets/winter-01.png",
+                    "image": "assets/winter-01.png",
                 },
             },
             "seasonal_role": None,
@@ -140,43 +143,128 @@ class SeasonalRoles(commands.Cog):
         await self.check_holidays(ctx, ctx.guild, date)
 
     async def add_holiday_role(
-        self, ctx: commands.Context, name: str, date: str, color: str
+        self,
+        ctx: commands.Context,
+        name: str,
+        date: str,
+        color: str,
+        image: Optional[str] = None,
     ) -> discord.Role:
         valid = await self.validate_holiday(ctx, name, date, color)
         if not valid:
             return None
         existing_role = discord.utils.get(ctx.guild.roles, name=name)
         if not existing_role:
-            try:
-                role = await ctx.guild.create_role(
-                    name=name, color=discord.Color(int(color[1:], 16))
-                )
-                logger.debug(f"Created role {role.name} in {ctx.guild.name}")
-                await ctx.send(f"Holiday role {name} added successfully!")
-                return role
-            except Forbidden:
-                await ctx.send("I don't have permissions to create roles.")
+            role_args = {"name": name, "color": discord.Color(int(color[1:], 16))}
+
+        if image and "ROLE_ICONS" in ctx.guild.features:
+            script_dir = os.path.dirname(__file__)  # Directory of the current script
+            image_path = os.path.join(script_dir, image)
+            logger.debug(f"Checking image path: {image_path}")
+            if os.path.exists(image_path):
+                try:
+                    with open(image_path, "rb") as img_file:
+                        img_data = img_file.read()
+                        img_b64 = base64.b64encode(img_data).decode("utf-8")
+                        role_args["display_icon"] = img_data
+                        logger.debug(
+                            f"Image data for {name} role successfully encoded."
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to process the image data for {name} role: {e}"
+                    )
+                    await ctx.send(
+                        "An error occurred while processing the holiday role image."
+                    )
+                    return None
+            else:
+                logger.error(f"Image file not found at path: {image_path}")
+                await ctx.send("Image file not found.")
                 return None
 
-    @commands.guild_only()
-    # @commands.has_permissions(manage_guild=True)  # This offers flexibility and can be changed based on desired permissions
-    @seasonal.command(name="toggle")
-    async def toggle_dry_run(self, ctx: commands.Context):
-        logger.info("toggle_dry_run command invoked")
         try:
-            current_state = await self.config.guild(ctx.guild).dry_run_mode()
-            await self.config.guild(ctx.guild).dry_run_mode.set(not current_state)
-            mode_str = "enabled" if not current_state else "disabled"
-            if not current_state:
-                await ctx.send(
-                    f"Dry run mode {mode_str}. Any actions will be simulated and no real changes will be made."
+            # Creating the role
+            role = await ctx.guild.create_role(**role_args)
+            logger.debug(f"Created role {role.name} with icon in {ctx.guild.name}")
+            await self.set_seasonal_role_to_top(ctx.guild, role)
+            logger.debug(f"Set the seasonal role '{role.name}' to the top.")
+            await ctx.send(f"Holiday role '{name}' with icon added successfully!")
+            return role
+        except discord.Forbidden:
+            logger.error("Lack of permissions to create or modify roles.")
+            await ctx.send("I don't have permissions to create or modify roles.")
+        except discord.NotFound:
+            logger.error(
+                "Resource not found. The role or user might have been deleted."
+            )
+            await ctx.send("Failed to find the specified resource.")
+        except discord.HTTPException as e:
+            logger.error(f"HTTP error occurred: {e}")
+            await ctx.send("An error occurred due to a server-side issue.")
+        except TypeError as e:
+            logger.error(f"TypeError occurred: {e}")
+            await ctx.send(
+                "An invalid type was provided for creating or modifying a role."
+            )
+        except Exception as e:
+            logger.error(f"An unexpected error occurred: {e}")
+            await ctx.send("An unexpected error occurred.")
+
+    async def set_seasonal_role_to_top(
+        self, guild: discord.Guild, role: discord.Role
+    ) -> None:
+        bot_member = guild.me  # The bot's member object in the guild
+        bot_roles = sorted(
+            bot_member.roles, key=lambda x: x.position, reverse=True
+        )  # Sort roles by position
+        highest_bot_role = bot_roles[0]  # The highest role the bot has
+
+        if highest_bot_role.position > 1:
+            # Set the seasonal role position to one less than the bot's highest role
+            new_position = highest_bot_role.position - 1
+            positions = {role: new_position}
+            try:
+                await guild.edit_role_positions(positions)
+                logger.debug(
+                    f"Seasonal role '{role.name}' set to position {new_position}."
                 )
-            else:
+            except Exception as e:
+                logger.error(f"Error setting position of seasonal role: {e}")
+        else:
+            logger.warning(
+                "Bot does not have sufficient role hierarchy to set the seasonal role position."
+            )
+
+    @commands.guild_only()
+    @seasonal.command(name="dryrun")
+    async def toggle_dry_run(self, ctx: commands.Context, mode: str):
+        """Toggle dry run mode for seasonal role actions."""
+        logger.info("toggle_dry_run command invoked")
+        mode = mode.lower()
+        if mode in ["enabled", "true", "on"]:
+            enabled = True
+        elif mode in ["disabled", "false", "off"]:
+            enabled = False
+        else:
+            await ctx.send(
+                "Invalid mode. Use 'enabled', 'true', 'on' to enable or 'disabled', 'false', 'off' to disable dry run mode."
+            )
+            return
+
+        try:
+            await self.config.guild(ctx.guild).dry_run_mode.set(enabled)
+            mode_str = "enabled" if enabled else "disabled"
+            if enabled:
                 await ctx.send(
                     f"Dry run mode {mode_str}. Actions will now make real changes."
                 )
+            else:
+                await ctx.send(
+                    f"Dry run mode {mode_str}. Any actions will be simulated, and no real changes will be made."
+                )
         except Exception as e:
-            logger.error(f"Error in check_holidays loop: {e}")
+            logger.error(f"Error in toggle_dry_run: {e}")
 
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
@@ -229,20 +317,26 @@ class SeasonalRoles(commands.Cog):
         self, ctx: commands.Context, date_str: Optional[str] = None
     ):
         """Force check holidays."""
-        await self.check_holidays(ctx, ctx.guild, date_str=date_str, force=True)
+        await self.check_holidays(ctx.guild, date_str=date_str, force=True)
         await ctx.send("Checked holidays for this guild.")
 
     @tasks.loop(hours=24)
     async def check_holidays(
         self,
-        ctx: commands.Context,
-        guild: discord.Guild,
+        guild: Optional[discord.Guild] = None,
         date_str: Optional[str] = None,
         force: bool = False,
     ):
         """Check holidays and apply/remove roles if needed."""
         logger.debug("Starting check_holidays loop")
 
+        # If guild is not provided, use the guild set in before_check_holidays
+        if guild is None:
+            guild = self.guild
+
+        if guild is None:
+            logger.error("Guild not set for check_holidays task.")
+            return
         # Determine Target Date with Error Handling
         try:
             if date_str:
@@ -324,6 +418,7 @@ class SeasonalRoles(commands.Cog):
                         holiday,
                         holiday_details.get("date"),
                         holiday_details.get("color"),
+                        holiday_details.get("image"),
                     )
                     await self.apply_role_to_all(guild, role)
 
@@ -394,6 +489,7 @@ class SeasonalRoles(commands.Cog):
                 matched_holiday_name,
                 holiday_details["date"],
                 holiday_details["color"],
+                holiday_details["image"],
             )
             if role:
                 await self.apply_role_to_all(guild, role)
