@@ -13,10 +13,14 @@ DEFAULT_THREAD_NAME = "Hello World Thread"
 DEFAULT_THREAD_MESSAGE = "This is the first message in the thread."
 THREAD_CREATION_ERROR = "An error occurred while creating the thread."
 
-async def create_discord_thread(ctx: Context, channel_id: int, 
-                                thread_name: str = DEFAULT_THREAD_NAME,
-                                thread_content: str = DEFAULT_THREAD_MESSAGE,
-                                tags: Optional[List[ForumTag]] = None) -> None:
+
+async def create_discord_thread(
+    ctx: Context,
+    channel_id: int,
+    thread_name: str = DEFAULT_THREAD_NAME,
+    thread_content: str = DEFAULT_THREAD_MESSAGE,
+    tags: Optional[List[ForumTag]] = None,
+) -> None:
     """
     Create a thread in the specified Discord channel.
 
@@ -26,7 +30,9 @@ async def create_discord_thread(ctx: Context, channel_id: int,
     :param thread_content: Initial message for the thread
     :param tags: List of tags to be added to the thread
     """
-    logger.info(f"Entering create_discord_thread with context: {ctx}, channel_id: {channel_id}")
+    logger.info(
+        f"Entering create_discord_thread with context: {ctx}, channel_id: {channel_id}"
+    )
     logger.debug(f"Type of ctx: {type(ctx)}, Type of channel_id: {type(channel_id)}")
     channel = ctx.guild.get_channel(channel_id)
     if channel is None:
@@ -42,7 +48,9 @@ async def create_discord_thread(ctx: Context, channel_id: int,
 
         logger.info(f"Created thread {thread} in channel {channel_id}.")
         logger.debug(f"Type of thread: {type(thread)}")
-        logger.debug(f"thread.id: {thread.id}, thread.name: {thread.name}, thread.content: {thread.content}")
+        logger.debug(
+            f"thread.id: {thread.id}, thread.name: {thread.name}, thread.content: {thread.content}"
+        )
 
         # Get the "Movie Club" tag
         movie_club_tag = None
@@ -71,20 +79,22 @@ async def create_discord_thread(ctx: Context, channel_id: int,
     except AttributeError as ae:
         logger.error(f"AttributeError: {ae}. Object: {thread}")
     except Exception as e:
-        logger.error(f"Unexpected error creating thread in channel {channel_id}: {e} Thread object: {thread}")
+        logger.error(
+            f"Unexpected error creating thread in channel {channel_id}: {e} Thread object: {thread}"
+        )
         await ctx.send(THREAD_CREATION_ERROR)
-
 
 
 SEND_MESSAGE_ERROR = "An error occurred while sending the message."
 ROLE_NOT_FOUND_ERROR = "The provided role ID was not found."
 CHANNEL_TYPE_ERROR = "Provided channel is not a text channel."
 
-async def send_discord_message(ctx: Context, channel_id: int, 
-                                 message_content: str, 
-                                 role_id: Optional[int] = None) -> str:
+
+async def send_discord_message(
+    ctx: Context, channel_id: int, message_content: str, role_id: Optional[int] = None
+) -> str:
     """
-    Sends a scheduled message to a specified channel. 
+    Sends a scheduled message to a specified channel.
     If a role_id is provided, it mentions the role in the message.
 
     :param ctx: Command context
@@ -124,21 +134,24 @@ async def send_discord_message(ctx: Context, channel_id: int,
         logger.error(f"Unexpected error sending message to channel {channel.id}: {e}")
         await ctx.send(SEND_MESSAGE_ERROR)
         return SEND_MESSAGE_ERROR
-    
+
 
 MAX_ITEMS_LIMIT = 25  # Define a constant for the maximum number of items
 
-async def create_discord_modal(ctx: Context, 
-                               title: str, 
-                               items: Optional[List[Item]] = None, 
-                               timeout: Optional[float] = None, 
-                               custom_id: Optional[str] = None,
-                               wait_for_interaction: bool = False,
-                               on_submit_callback: Optional[Callable[[Context], None]] = None,
-                               on_error_callback: Optional[Callable[[Context, Exception], None]] = None) -> Union[Modal, None]:
+
+async def create_discord_modal(
+    ctx: Context,
+    title: str,
+    items: Optional[List[Item]] = None,
+    timeout: Optional[float] = None,
+    custom_id: Optional[str] = None,
+    wait_for_interaction: bool = False,
+    on_submit_callback: Optional[Callable[[Context], None]] = None,
+    on_error_callback: Optional[Callable[[Context, Exception], None]] = None,
+) -> Union[Modal, None]:
     """
     Create and display a Discord modal.
-    
+
     :param ctx: Command context
     :param title: Title of the modal
     :param items: List of UI items to add to the modal
@@ -151,36 +164,40 @@ async def create_discord_modal(ctx: Context,
     """
 
     logger.debug(f"Attempting to create modal with custom_id: {custom_id}")
-    
+
     try:
         # Initialize the modal
         modal = Modal(title=title, timeout=timeout, custom_id=custom_id)
         logger.debug(f"Modal initialized with title: {title}")
-        
+
         # Add items to the modal with validation
         if items:
             if len(items) > MAX_ITEMS_LIMIT:
-                logger.error(f"Too many items provided for modal with custom_id: {custom_id}")
+                logger.error(
+                    f"Too many items provided for modal with custom_id: {custom_id}"
+                )
                 raise ValueError("Too many items provided for the modal.")
             for item in items:
                 modal.add_item(item)
-            logger.debug(f"{len(items)} items added to modal with custom_id: {custom_id}")
-        
+            logger.debug(
+                f"{len(items)} items added to modal with custom_id: {custom_id}"
+            )
+
         # Define or set callbacks
         if on_submit_callback:
             modal.on_submit = on_submit_callback
         if on_error_callback:
             modal.on_error = on_error_callback
-        
+
         # Display the modal
         await ctx.response.send_modal(modal)
         logger.debug(f"Modal with custom_id: {custom_id} displayed to user.")
-        
+
         # Optionally wait for interaction
         if wait_for_interaction:
             await modal.wait()
             logger.debug(f"Interaction completed for modal with custom_id: {custom_id}")
-        
+
         return modal
 
     except HTTPException as http_err:

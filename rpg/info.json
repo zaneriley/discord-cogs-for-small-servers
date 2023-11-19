@@ -1,0 +1,22 @@
+{
+    "$schema": "https://raw.githubusercontent.com/Cog-Creators/Red-DiscordBot/V3/develop/schema/red_cog.schema.json",
+    "name": "TBDRPG",
+    "short": "A cog for playing a text-based RPG in Discord.",
+    "description": "This cog is a text-based RPG that can be played in Discord that's meant to reward player-to-player cooperative play.",
+    "end_user_data_statement": "This cog does not persistently store any data or metadata about users.",
+    "install_msg": "Thanks for intalling the TBDRPG cog! I hope it helps you connect with your friends.",
+    "author": [
+        "zr"
+    ],
+    "required_cogs": {},
+    "requirements": ["dotenv"],
+    "tags": [
+        "rpg",
+        "game",
+        "text-based"
+    ],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}

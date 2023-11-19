@@ -1,0 +1,9 @@
+{
+    "WELCOME": "Test message",
+    "CREATE_CHARACTER_PROMPT": "What is your name?",
+    "CREATE_CHARACTER_START": "In the murky realm of half-consciousness, a flicker of awareness stirs – hazy and uncertain, searching for reason within the dark ocean of oblivion. Gentle murmurs from unseen sources nudge your awakening mind, encouraging your fragile thoughts to extend and explore the void around you.\n\nThis is your genesis. Hearing those whispers, you've chosen to join the dance of life, where fortune and destiny twine, akin to serpents entwined.",
+    "CREATE_CHARACTER_EXISTS": "You already have a character by that name",
+    "CREATE_CHARACTER_FINISH": "Character '{char_name}' created!",
+    "CHARACTER_EXISTS": "Character '{char_name}' already exists!",
+    "INVENTORY": "Here's your inventory!"
+}
