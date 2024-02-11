@@ -22,6 +22,26 @@ from ..constants import MOVIE_CLUB_LOGO
 from ..utilities import DateUtil
 
 
+class DatePollConfig:
+    MOVIE_NIGHT_DAYS = ["Tuesday", "Wednesday", "Thursday", "Friday"]
+    MOVIE_NIGHT_DAYS_ISO = DateUtil.get_iso_weekdays_from_names(MOVIE_NIGHT_DAYS)
+    HOLIDAY_OFFSETS = [-1, 0, 1]  # Days around a holiday to consider in filtering
+
+    # Configuration for Discord UI elements
+    FOOTER_ICON_URL = "https://cdn3.emoji.gg/emojis/1075-pinkhearts.gif"
+    VOTE_CHECK_ICON = "<:check:1103626473266479154>"
+    VOTE_X_ICON = "<:X_:1103627142425747567>"
+
+    # Configuration for poll message content
+    POLL_MESSAGE_CONTENT = (
+        "\u200B\nVote for the date of the next movie night! {mention_str}\n\u200B"
+    )
+    POLL_TITLE_LOGO = MOVIE_CLUB_LOGO  # Assuming MOVIE_CLUB_LOGO is defined elsewhere
+
+    # Configuration for showtimes embed field
+    SHOWTIMES = "6pm Pacific ∙ 7pm High Peak ∙ 8pm Heartland ∙ 9pm Eastern ∙ 10am 東京"
+
+
 def last_days_of_month(input_date: date, final_days: int = 14) -> List[date]:
     """Find the last days in a given month and return as a list."""
     _, last_day = calendar.monthrange(input_date.year, input_date.month)
@@ -38,15 +58,16 @@ def get_filtered_candidate_dates(
     removed_dates = []  # Keep track of removed dates
     removal_reasons = defaultdict(int)  # Keep track of removal reasons
 
+    allowed_weekdays = DatePollConfig.MOVIE_NIGHT_DAYS_ISO
     for candidate_date in candidate_dates:
-        # Assume weekends are 6 (Saturday) and 7 (Sunday), and Monday is 1
-        if candidate_date.isoweekday() in [6, 7, 1]:
-            removal_reasons["weekend_or_monday"] += 1
+        if candidate_date.isoweekday() not in allowed_weekdays:
+            removal_reasons["not_movie_night_day"] += 1
             removed_dates.append(candidate_date)
             continue
+        # Existing holiday filtering logic remains unchanged
         if any(
             (candidate_date + timedelta(days=offset)) in us_holidays
-            for offset in (-1, 0, 1)
+            for offset in DatePollConfig.HOLIDAY_OFFSETS
         ):
             removal_reasons["holiday_or_adjacent"] += 1
             removed_dates.append(candidate_date)
@@ -244,7 +265,7 @@ class DatePollButton(ui.Button):
         # Setting the footer in the original_embed
         original_embed.set_footer(
             text=footer_text,
-            icon_url="https://cdn3.emoji.gg/emojis/1075-pinkhearts.gif",
+            icon_url=DatePollConfig.FOOTER_ICON_URL,
         )
 
         # Now editing the embed with the original_embed
@@ -256,8 +277,9 @@ class DatePollButton(ui.Button):
         ]
 
         def get_sorted_presentable_dates(dates):
+            logging.info(f"Sorting the following dates: {dates}")
             datetime_dates = [
-                datetime.datetime.strptime(date, "%Y-%m-%d") for date in dates
+                datetime.strptime(date, "%Y-%m-%d") for date in dates
             ]  # Convert stringified dates back to datetime
             sorted_dates = DateUtil.sort_dates(
                 datetime_dates
@@ -392,7 +414,7 @@ class DatePoll(Poll):
                 embed = Embed(title=f"{MOVIE_CLUB_LOGO}\n\n")
                 embed.add_field(
                     name="Showtimes",
-                    value="6pm Pacific ∙ 7pm High Peak ∙ 8pm Heartland ∙ 9pm Eastern ∙ 10am 東京",
+                    value=DatePollConfig.SHOWTIMES,
                     inline=False,
                 )
 
@@ -446,7 +468,7 @@ class DatePoll(Poll):
                 )
             date_user_votes = await self.get_user_votes()
             for most_voted_date in most_voted_dates:
-                date_to_check = datetime.datetime.strptime(most_voted_date, "%Y-%m-%d")
+                date_to_check = datetime.strptime(most_voted_date, "%Y-%m-%d")
                 presentable_date = DateUtil.get_presentable_date(date_to_check)
                 str_date_to_check = date_to_check.strftime("%Y-%m-%d")
                 user_votes = date_user_votes.get(str_date_to_check, {})
@@ -492,7 +514,7 @@ class DatePoll(Poll):
         date_strings = await self.get_buttons()
         logging.debug(f"Date strings: {date_strings}")
         dates = [
-            datetime.datetime.strptime(date_string, "%a, %b %d, %Y")
+            datetime.strptime(date_string, "%a, %b %d, %Y")
             for date_string in date_strings
         ]
         return DatePollView(dates, self.config, self.guild, self.poll_id)

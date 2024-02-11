@@ -21,6 +21,13 @@ Next:
 
 - [ ] **Member Stats**: Track and display user activity and engagement on the server.
 
+![SeasonalRoles](https://github.com/zaneriley/discord-cogs-for-small-servers/blob/main/seasonalroles/cog-logo.png?raw=true
+Automatically assign and remove roles based on specified holidays and events. 
+
+- [x] Assigns and removes roles based on defined holidays (currently semi-ficitious holidays)
+- [x] Includes a way to dry run changes and force holidays, for one-offs
+- [x] Allows users to opt-out of seasonal roles
+
 ## Requirements
 
 To use these cogs, you need the following:
@@ -28,14 +35,6 @@ To use these cogs, you need the following:
 - **Python 3.8+**
 - **Discord.py**
 - **Red-DiscordBot**
-
-
-![SeasonalRoles](https://github.com/zaneriley/discord-cogs-for-small-servers/assets/2167062/1feb3dbe-4818-479b-a93c-2f390ad43186)
-Automatically assign and remove roles based on specified holidays and events. 
-
-- [x] Assigns and removes roles based on defined holidays (currently semi-ficitious holidays)
-- [x] Includes a way to dry run changes and force holidays, for one-offs
-- [x] Allows users to opt-out of seasonal roles
 
 ## Installation
 
