@@ -1,68 +1,68 @@
-from datetime import datetime, timedelta
-from typing import List
-
-# Third-party library imports
+from datetime import datetime, date, timedelta
+from typing import List, Union
 from dateutil.relativedelta import relativedelta
 
 
 class DateUtil:
     @staticmethod
-    def normalize_date(date: datetime) -> datetime:
-        """Returns a date with the time set to 00:00:00 for consistent comparison"""
-        return datetime.combine(date.date(), datetime.min.time())
+    def normalize_date(input_date: Union[datetime, date]) -> date:
+        """Ensures the input is a datetime.date object."""
+        if isinstance(input_date, datetime):
+            return input_date.date()  # Convert datetime to date
+        elif isinstance(input_date, date):
+            return input_date  # Already a date, return as is
+        else:
+            raise TypeError(
+                "input_date must be a datetime.datetime or datetime.date instance"
+            )
 
     @staticmethod
-    def normalize_date(date: datetime.date) -> datetime:
-        """Returns a date with the time set to 00:00:00 for consistent comparison"""
-        return datetime.combine(date, datetime.min.time())
+    def get_presentable_date(input_date: date) -> str:
+        """Returns a date string in the format 'Mon, Sept 18, YYYY'"""
+        return input_date.strftime("%a, %b %d, %Y")
 
     @staticmethod
-    def get_presentable_date(date: datetime) -> str:
-        """Returns a date string in the format 'Mon, Sept 18'"""
-        return date.strftime("%a, %b %d")
-
-    @staticmethod
-    def add_days(date: datetime, days: int) -> datetime:
+    def add_days(date: date, days: int) -> date:
         """Returns the date after adding the specified number of days"""
-        return date + timedelta(days=days)
+        return date + delta(days=days)
 
     @staticmethod
-    def subtract_days(date: datetime, days: int) -> datetime:
+    def subtract_days(date: date, days: int) -> date:
         """Returns the date after subtracting the specified number of days"""
-        return date - timedelta(days=days)
+        return date - delta(days=days)
 
     @staticmethod
-    def str_to_date(
-        date_string: str, format_str: str = "%a, %b %d, %Y"
-    ) -> List[datetime]:
-        """Converts a date string to a datetime object using the specified format string"""
-        return datetime.strptime(date_string, format_str)
+    def str_to_date(date_string: str, format_str: str = "%a, %b %d, %Y") -> List[date]:
+        """Converts a date string to a date object using the specified format string"""
+        return date.strp(date_string, format_str)
 
     @staticmethod
-    def sort_dates(dates: List[datetime]) -> List[datetime]:
-        """Sorts and returns a list of datetime objects"""
+    def sort_dates(dates: List[date]) -> List[date]:
+        """Sorts and returns a list of date objects"""
         return sorted(dates)
 
     @staticmethod
-    def now() -> datetime:
-        """Returns current date with normalized time"""
-        return DateUtil.normalize_date(datetime.now())
+    def now() -> date:
+        """Returns current date"""
+        return date.today()
 
     @staticmethod
-    def get_year_month(month: str, year: int = None) -> datetime:
-        """Returns a datetime object in the format '%B' or '%b'"""
+    def get_year_month(month: str, year: int = None) -> date:
+        """Returns a date object for the first day of the specified '%B' or '%b' month"""
         year = year if year else DateUtil.now().year
         try:
-            return datetime.strptime(month, "%B").replace(year=year)
+            # Correctly use datetime.strptime and convert to date
+            return datetime.strptime(f"{year} {month}", "%Y %B").date()
         except ValueError:
-            return datetime.strptime(month, "%b").replace(year=year)
+            # Handle abbreviated month names
+            return datetime.strptime(f"{year} {month}", "%Y %b").date()
 
     @staticmethod
-    def is_within_days(date1: datetime, date2: datetime, days: int) -> bool:
+    def is_within_days(date1: date, date2: date, days: int) -> bool:
         """Returns true if the difference between date1 and date2 is within the given number of days"""
         return (date1.date() - date2.date()).days <= days
 
     @staticmethod
-    def to_next_month(date: datetime) -> datetime:
+    def to_next_month(date: date) -> date:
         """Returns the same date in the next month"""
         return date + relativedelta(months=1)

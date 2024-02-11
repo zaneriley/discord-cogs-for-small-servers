@@ -47,7 +47,7 @@ next_vote_endings = [
     "You feel a little more confident in your choice this time. You feel a little more confident in yourself.",
     "This one is more real. This is your real vote.",
     "You couldn't live with your mistake, and are now living with another one. Live with it.",
-    "This movie makes you want to paint. Not that you are an artist. You've never done art, you can't do art. But you want to. Paint is cheap. It's very cheap. Just get the cheap one. That's all.",
+    "This movie makes you want to paint. Not that you are an artist. You've never done art, you can't do art. But you want to.",
     "Wow! You're really giving it to them! You're good at this! You've considered a great multiplicity of factors before coming to your choice. They all seemed to point in the same direction. You voted correctly.",
     "",
 ]

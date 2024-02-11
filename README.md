@@ -30,7 +30,7 @@ To use these cogs, you need the following:
 - **Red-DiscordBot**
 
 
-### SeasonalRoles
+![SeasonalRoles](https://github.com/zaneriley/discord-cogs-for-small-servers/assets/2167062/1feb3dbe-4818-479b-a93c-2f390ad43186)
 Automatically assign and remove roles based on specified holidays and events. 
 
 - [x] Assigns and removes roles based on defined holidays (currently semi-ficitious holidays)

@@ -3,10 +3,8 @@ import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from typing import Optional
 
-# Assuming you're importing the utility function like this:
 from ..utilities.discord_utils import send_discord_message
 
-# Initialize logging
 logger = logging.getLogger(__name__)
 
 

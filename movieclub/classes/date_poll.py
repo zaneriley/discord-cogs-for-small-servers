@@ -1,15 +1,16 @@
 # Standard imports
 import calendar
 import datetime
-from datetime import date, timedelta
+from datetime import datetime, date, timedelta
 from collections import defaultdict
 import uuid
-from typing import List
+from typing import List, Optional, Set
 import logging
 
 # Third-party library imports
 from dateutil.relativedelta import relativedelta, SU  # Import SU (Sunday)
 import discord
+from discord.ext import commands
 from discord import ui
 from discord import ui, Embed, ButtonStyle
 from discord.errors import NotFound, Forbidden, HTTPException
@@ -20,90 +21,51 @@ from .poll import Poll
 from ..constants import MOVIE_CLUB_LOGO
 from ..utilities import DateUtil
 
-# def first_weekday_after_days(weekday: int, date: datetime, days: int=14, holiday_list: List=None) -> datetime:
-#     """
-#     Returns the first weekday after a given number of days from the input date,
-#     skipping any holidays.
-#     """
-#     logging.debug(f"Input date in first_weekday_after_days: {date}")
 
-#     # Calculate the date 14 days from the input date
-#     future_date = date + timedelta(days=days)
-
-#     # Start iterating from the future_date to find the next available weekday
-#     while True:
-#         # Calculate the weekday of the future_date
-#         diff = weekday - future_date.weekday()
-#         offset = diff if diff >= 0 else diff + 7
-#         first_date = future_date + timedelta(days=offset)
-
-#         logging.debug(f"Calculated first_date in first_weekday_after_days: {first_date}")
-
-#         # Check if first_date is still within the same month as the input date
-#         if first_date.month != date.month:
-#             logging.debug(f"first_date {first_date} is not in the same month as input date {date}. Returning None.")
-#             return None
-
-#         # Check for holidays
-#         if holiday_list and (first_date in holiday_list or
-#                              first_date - timedelta(days=1) in holiday_list or
-#                              first_date + timedelta(days=1) in holiday_list):
-#             logging.debug(f"first_date {first_date} is a holiday or near a holiday. Skipping.")
-#             # Move to the next day and continue the loop
-#             future_date = first_date + timedelta(days=1)
-#             continue
-
-#         return first_date
-
-
-def last_days_of_month(date: datetime, final_days: int = 14):
+def last_days_of_month(input_date: date, final_days: int = 14) -> List[date]:
     """Find the last days in a given month and return as a list."""
-    _, last_day = calendar.monthrange(date.year, date.month)
-    last_date = datetime.date(date.year, date.month, last_day)
-    first_date = last_date - datetime.timedelta(days=final_days)
-    dates = []
-    for i in range(final_days + 1):
-        dates.append(first_date + timedelta(days=i))
+    _, last_day = calendar.monthrange(input_date.year, input_date.month)
+    last_date = date(input_date.year, input_date.month, last_day)  # Corrected
+    first_date = last_date - timedelta(days=final_days)
+    dates = [first_date + timedelta(days=i) for i in range(final_days + 1)]
     return dates
 
 
-# def last_weekday(weekday, date):
-#     """
-#     Returns the last weekday of the month.
-#     """
-#     logging.debug(f"Input date in last_weekday: {date}")
-#     next_month = date + relativedelta(months=1)
-#     logging.debug(f"Next month: {next_month}")
-#     last_day_of_month = next_month - datetime.timedelta(days=1)
-#     logging.debug(f"Last day of month: {last_day_of_month}")
-#     diff = last_day_of_month.weekday() - weekday
-#     offset = diff if diff >= 0 else diff + 7
-#     last_date = last_day_of_month - datetime.timedelta(days=offset)
+def get_filtered_candidate_dates(
+    candidate_dates: List[date], us_holidays: Set[date]
+) -> List[date]:
+    filtered_dates = []
+    removed_dates = []  # Keep track of removed dates
+    removal_reasons = defaultdict(int)  # Keep track of removal reasons
 
-#     logging.debug(f"Calculated last_date in last_weekday: {last_date}")
-
-#     if (last_date - date).days <= 14:
-#         logging.debug(f"last_date {last_date} is within 14 days from input date {date}. Returning None.")
-#         return None
-
-#     return last_date
-
-
-def get_filtered_candidate_dates(candidate_dates, us_holidays):
-    for date in candidate_dates:
-        # Remove Mondays, and weekends.
-        if date.isoweekday() not in [2, 3, 4, 5]:
-            candidate_dates.remove(date)
+    for candidate_date in candidate_dates:
+        # Assume weekends are 6 (Saturday) and 7 (Sunday), and Monday is 1
+        if candidate_date.isoweekday() in [6, 7, 1]:
+            removal_reasons["weekend_or_monday"] += 1
+            removed_dates.append(candidate_date)
             continue
-        # Remove holidays and days before and after
-        if us_holidays and (
-            date in us_holidays
-            or date - timedelta(days=1) in us_holidays
-            or date + timedelta(days=1) in us_holidays
+        if any(
+            (candidate_date + timedelta(days=offset)) in us_holidays
+            for offset in (-1, 0, 1)
         ):
-            candidate_dates.remove(date)
+            removal_reasons["holiday_or_adjacent"] += 1
+            removed_dates.append(candidate_date)
             continue
-    return candidate_dates
+        filtered_dates.append(candidate_date)
+
+    # Log the removed dates and the dates that remain after filtering
+    if removed_dates:
+        logging.debug(f"Removed dates: {', '.join(map(str, removed_dates))}")
+    if filtered_dates:
+        logging.debug(f"Remaining dates: {', '.join(map(str, filtered_dates))}")
+
+    # Log a summary of the removal reasons and total dates
+    logging.debug(f"Date removal summary: {dict(removal_reasons)}")
+    logging.debug(
+        f"Total dates checked: {len(candidate_dates)}, filtered: {len(filtered_dates)}"
+    )
+
+    return filtered_dates
 
 
 class CustomHolidays(UnitedStates):
@@ -152,18 +114,20 @@ class CustomHolidays(UnitedStates):
 
 
 class DatePollView(ui.View):
-    def __init__(self, dates, config, guild, poll_id):
+    def __init__(self, dates: List[date], config, guild, poll_id):
         super().__init__()
         for date in dates:
             self.add_item(DatePollButton(date, config, guild, poll_id))
 
 
 class DatePollButton(ui.Button):
-    def __init__(self, date: datetime, config, guild, poll_id):
+    def __init__(self, date: date, config, guild, poll_id):
         super().__init__(
             style=ButtonStyle.primary, label=DateUtil.get_presentable_date(date)
         )
         self.date = DateUtil.normalize_date(date)
+        logging.debug(f"Creating DatePollButton for date: {self.date}")
+
         self.config = config
         self.guild = guild
         self.poll_id = poll_id
@@ -327,70 +291,91 @@ class DatePoll(Poll):
     def __init__(self, bot, config, guild):
         super().__init__(bot, config, guild, "date_poll")
 
-    async def start_poll(self, ctx, action, month):
-        candidate_dates = []
-        us_holidays = []
-        if action == "start":
-            if month:
-                logging.debug(f"Month provided: {month}")
-                month_date = DateUtil.get_year_month(month)
-                candidate_dates = last_days_of_month(month_date)
-                us_holidays = CustomHolidays(years=month_date.year)
-                candidate_dates = get_filtered_candidate_dates(
-                    candidate_dates, us_holidays
-                )
-                if len(candidate_dates) < 3:
-                    await ctx.send(
-                        "There are not enough dates available to start a poll."
-                    )
-                    return
-            else:
-                current_date = DateUtil.now()
-                delta_days_from_current_date = current_date + timedelta(days=14)
-                if delta_days_from_current_date.month != current_date.month:
-                    current_date = datetime.date(
-                        delta_days_from_current_date.year,
-                        delta_days_from_current_date.month,
-                        1,
-                    )
-                    candidate_dates = last_days_of_month(current_date)
-                    us_holidays = CustomHolidays(
-                        years=delta_days_from_current_date.year
-                    )
-                else:
-                    candidate_dates = last_days_of_month(current_date)
-                    us_holidays = CustomHolidays(years=current_date.year)
-                    # remove days that are less than 14 days from today
-                    for date in candidate_dates:
-                        if delta_days_from_current_date > date:
-                            candidate_dates.remove(date)
-
-                filtered_candidate_dates = get_filtered_candidate_dates(
-                    candidate_dates, us_holidays
-                )
-                if len(filtered_candidate_dates) < 3:
-                    while True:
-                        current_date = DateUtil.to_next_month(
-                            datetime.date(current_date.year, current_date.month, 1)
+    async def start_poll(
+        self, ctx: commands.Context, action: str, month: Optional[str] = None
+    ) -> None:
+        try:
+            logging.debug(f"Starting poll with action: {action}, month: {month}")
+            candidate_dates = []
+            us_holidays = []
+            if action == "start":
+                if month:
+                    try:
+                        logging.debug(f"Month provided: {month}")
+                        month_date = DateUtil.get_year_month(month)
+                        candidate_dates = last_days_of_month(month_date)
+                        logging.debug(
+                            f"Candidate dates generated for {month}: {', '.join(map(str, candidate_dates))}"
                         )
-                        candidate_dates = last_days_of_month(current_date)
-                        us_holidays = CustomHolidays(years=current_date.year)
+
+                        us_holidays = CustomHolidays(years=month_date.year)
                         filtered_candidate_dates = get_filtered_candidate_dates(
                             candidate_dates, us_holidays
                         )
-                        if len(filtered_candidate_dates) >= 3:
-                            break
+                        if len(filtered_candidate_dates) < 3:
+                            await ctx.send(
+                                "There are not enough dates available to start a poll."
+                            )
+                            return
+                    except Exception as e:
+                        logging.error(f"Error processing specific month '{month}': {e}")
+                        await ctx.send(
+                            "An error occurred while processing the specified month. Please try again."
+                        )
+                        return
+                else:
+                    current_date = DateUtil.now()
+                    logging.debug(
+                        f"No month provided, using today's date... {current_date}"
+                    )
+                    delta_days_from_current_date = current_date + timedelta(days=14)
+                    if delta_days_from_current_date.month != current_date.month:
+                        current_date = datetime.date(
+                            delta_days_from_current_date.year,
+                            delta_days_from_current_date.month,
+                            1,
+                        )
+                        candidate_dates = last_days_of_month(current_date)
+                        us_holidays = CustomHolidays(
+                            years=delta_days_from_current_date.year
+                        )
+                    else:
+                        candidate_dates = last_days_of_month(current_date)
+                        us_holidays = CustomHolidays(years=current_date.year)
+                        # remove days that are less than 14 days from today
+                        for date in candidate_dates:
+                            if delta_days_from_current_date > date:
+                                candidate_dates.remove(date)
 
+                    filtered_candidate_dates = get_filtered_candidate_dates(
+                        candidate_dates, us_holidays
+                    )
+                    logging.debug(
+                        f"Filtered dates: {', '.join(map(str, filtered_candidate_dates))}"
+                    )
+                    if len(filtered_candidate_dates) < 3:
+                        while True:
+                            logging.debug(
+                                f"Trying next month: {current_date.month}-{current_date.year}, found {len(filtered_candidate_dates)} suitable dates"
+                            )
+                            current_date = DateUtil.to_next_month(
+                                datetime.date(current_date.year, current_date.month, 1)
+                            )
+                            candidate_dates = last_days_of_month(current_date)
+                            us_holidays = CustomHolidays(years=current_date.year)
+                            filtered_candidate_dates = get_filtered_candidate_dates(
+                                candidate_dates, us_holidays
+                            )
+
+                            if len(filtered_candidate_dates) >= 3:
+                                break
+            logging.debug(
+                f"Filtered dates before DatePollView: {', '.join(map(str, filtered_candidate_dates))}"
+            )
             dates = filtered_candidate_dates[:5]
-
-            # us_holidays = CustomHolidays(years=month.year)
-            # last_monday = first_weekday_after_days(0, month, days=14, holiday_list=us_holidays)
-            # last_wednesday = first_weekday_after_days(2, month, days=14, holiday_list=us_holidays)
-            # last_thursday = first_weekday_after_days(3, month, days=14, holiday_list=us_holidays)
-            # last_friday = first_weekday_after_days(4, month, days=14, holiday_list=us_holidays)
-            # last_saturday = first_weekday_after_days(5, month, days=14, holiday_list=us_holidays)
-            # dates = [date for date in [last_monday, last_wednesday, last_thursday, last_friday, last_saturday] if date is not None]
-            # dates.sort()
+            logging.debug(
+                f"Passing dates to DatePollView: {', '.join(map(str, dates))}"
+            )
 
             target_role = await self.get_target_role()
             if target_role:
@@ -398,31 +383,46 @@ class DatePoll(Poll):
             else:
                 mention_str = ""
 
+            logging.debug(
+                f"Sending poll message for dates: {', '.join(map(str, dates))}"
+            )
+
             # TODO: Move to discord.py functions?
-            embed = Embed(title=f"{MOVIE_CLUB_LOGO}\n\n")
-            embed.add_field(
-                name="Showtimes",
-                value="6pm Pacific ∙ 7pm High Peak ∙ 8pm Heartland ∙ 9pm Eastern ∙ 10am 東京",
-                inline=False,
-            )
-            view = DatePollView(dates, self.config, self.guild, self.poll_id)
-            msg = await ctx.send(
-                content=f"\u200B\nVote for the date of the next movie night! {mention_str}\n\u200B",
-                embed=embed,
-                view=view,
-            )
-            logging.debug(f"Generated message id: {msg.id}")
-            await self.set_message_id(msg.id)
-            await self.set_poll_channel_id(msg.channel.id)
+            try:
+                embed = Embed(title=f"{MOVIE_CLUB_LOGO}\n\n")
+                embed.add_field(
+                    name="Showtimes",
+                    value="6pm Pacific ∙ 7pm High Peak ∙ 8pm Heartland ∙ 9pm Eastern ∙ 10am 東京",
+                    inline=False,
+                )
 
-            # votes = await self.with_context.votes()
-            # votes[date_key] += 1
-            # await self.with_context.votes.set(votes)
+                view = DatePollView(dates, self.config, self.guild, self.poll_id)
+                msg = await ctx.send(
+                    content=f"\u200B\nVote for the date of the next movie night! {mention_str}\n\u200B",
+                    embed=embed,
+                    view=view,
+                )
+                logging.debug(f"Generated message id: {msg.id}")
+                await self.set_message_id(msg.id)
+                await self.set_poll_channel_id(msg.channel.id)
+            except Exception as e:
+                logging.error(f"Failed to send poll message: {e}")
+                await ctx.send(
+                    "An error occurred while trying to send the poll message. Please try again later."
+                )
+                return
 
-            # await self.config.is_date_poll_active.set(True)
             date_strings = [date.strftime("%a, %b %d, %Y") for date in dates]
             await self.add_buttons(date_strings)
-        else:
+        except Exception as e:
+            logging.error(f"Failed to send poll message: {e}")
+            await ctx.send(
+                "An error occurred while trying to send the poll message. Please try again later."
+            )
+            return
+
+        # This is the corrected placement for handling invalid actions
+        if action not in ["start", "end"]:
             await ctx.send('Invalid action. Use "start" or "end".')
 
     async def end_poll(self, ctx):
