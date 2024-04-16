@@ -1,12 +1,9 @@
 import logging
 import os
-import json
 from dotenv import load_dotenv
 from typing import Dict, Any, Union, Optional, List
-from operator import itemgetter
 
 import discord
-from discord import ui, Embed
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), "../../../.env"))
@@ -24,14 +21,11 @@ def fetch_and_normalize_movie_data(movie_name: str) -> Dict[str, Union[str, Any]
     try:
         logging.info(f"Fetching movie data for: {movie_name}")
 
-        # Fetch data from TMDB
         tmdb_details = fetch_tmdb_details(movie_name)
 
-        # Fetch data from Letterboxd
         letterboxd_details = fetch_letterboxd_details(movie_name)
         logging.info(f"Letterboxd details: {letterboxd_details}")
         if "letterboxd_link" in letterboxd_details:
-            # Fetch Reviews
             review_url = construct_url(letterboxd_details["letterboxd_link"], "reviews")
             review_page_content = fetch_reviews(review_url)
             reviews = (
@@ -40,7 +34,6 @@ def fetch_and_normalize_movie_data(movie_name: str) -> Dict[str, Union[str, Any]
         else:
             reviews = None
 
-        # Map data in our specific format and merge it
         movie_data: Dict[str, Union[str, Any]] = {
             "title": letterboxd_details.get("title", "")
             or tmdb_details.get("title", ""),
@@ -71,7 +64,6 @@ def fetch_and_normalize_movie_data(movie_name: str) -> Dict[str, Union[str, Any]
 
 
 def select_review(reviews: List[Dict[str, Union[str, Any]]]) -> Optional[str]:
-    # Select the most popular review with less than 140 characters.
     if reviews:
         for review in reviews:
             if "review_text" in review and len(review["review_text"]) < 140:
@@ -124,14 +116,12 @@ def movie_data_to_discord_format(movie_data: Dict[str, Any]) -> Dict[str, Any]:
             },
         ]
 
-        # Create the Embed object
         embed = discord.Embed(
             title=f"{movie_data['title']} ({movie_data.get('year_of_release', '')})",
             description=description,
             color=3356474,
         )
 
-        # Add fields using the add_field method
         for field in fields:
             embed.add_field(
                 name=field["name"], value=field["value"], inline=field["inline"]

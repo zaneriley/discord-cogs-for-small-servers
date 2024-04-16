@@ -49,7 +49,12 @@ Clone this repository to your local machine:
 git clone git@github.com:zaneriley/discord-cogs-for-small-servers.git
 ```
 
-TBD
+Create an .env file with:
+
+```
+DISCORD_BOT_TOKEN=01234567890
+GUILD_ID=12345678901234567890 # Right-click your server icon and hit "copy server ID"
+```
 
 ## Contributing
 

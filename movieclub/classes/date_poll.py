@@ -1,9 +1,8 @@
 # Standard imports
 import calendar
 import datetime
-from datetime import datetime, date, timedelta
+from datetime import date, timedelta
 from collections import defaultdict
-import uuid
 from typing import List, Optional, Set
 import logging
 
@@ -12,8 +11,8 @@ from dateutil.relativedelta import relativedelta, SU  # Import SU (Sunday)
 import discord
 from discord.ext import commands
 from discord import ui
-from discord import ui, Embed, ButtonStyle
-from discord.errors import NotFound, Forbidden, HTTPException
+from discord import Embed, ButtonStyle
+from discord.errors import HTTPException
 from holidays.countries.united_states import UnitedStates
 
 # Application-specific imports
@@ -162,7 +161,7 @@ class DatePollButton(ui.Button):
         )  # Convert datetime to string for display
         user_id = str(interaction.user.id)
 
-        logging.debug(f"Fetching current votes and user votes")
+        logging.debug("Fetching current votes and user votes")
         votes = defaultdict(int, await self.get_votes())
         date_user_votes = defaultdict(dict, await self.get_user_votes())
         logging.debug(f"Fetched votes: {votes} and user votes: {date_user_votes}")
@@ -191,7 +190,7 @@ class DatePollButton(ui.Button):
         date_user_votes[date_key] = dict(date_votes)
 
         # Update config
-        logging.debug(f"Updating votes and user votes")
+        logging.debug("Updating votes and user votes")
         await self.set_user_votes(dict(date_user_votes))
         await self.set_votes(dict(votes))
         logging.debug(f"Updated votes: {votes} and user votes: {date_user_votes}")

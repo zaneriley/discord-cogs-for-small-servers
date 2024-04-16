@@ -11,7 +11,6 @@ from urllib.parse import urlparse, urlunparse, quote
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from typing import Optional
 
 
 def construct_search_url(movie_title: str) -> str:

@@ -1,26 +1,15 @@
 # Standard library imports
 import logging
-from typing import Literal, List
+from typing import Literal
 from collections import defaultdict
 
 # Third-party library imports
 import discord
-from discord import (
-    ui,
-    Embed,
-    Button,
-    ButtonStyle,
-    ActionRow,
-    SelectMenu,
-    SelectOption,
-    TextInput,
-    app_commands,
-)
-from discord.ext import tasks, commands as dpy_commands
+from discord.ext import tasks
 from discord.errors import HTTPException
 
 # Application-specific imports
-from redbot.core import commands, Config, app_commands
+from redbot.core import commands, Config
 from redbot.core.bot import Red
 
 # Local imports
@@ -150,7 +139,7 @@ class MovieClub(commands.Cog):
 
             except AttributeError:
                 await ctx.send(
-                    f"Error: Unable to initialize date poll. For some reason, the Poll object could not be created."
+                    "Error: Unable to initialize date poll. For some reason, the Poll object could not be created."
                 )
                 logging.exception("Failed to initialize date poll.")
 
@@ -190,7 +179,7 @@ class MovieClub(commands.Cog):
 
             except AttributeError:
                 await ctx.send(
-                    f"Error: Unable to initialize movie poll. For some reason, the Poll object could not be created."
+                    "Error: Unable to initialize movie poll. For some reason, the Poll object could not be created."
                 )
                 logging.exception("Failed to initialize movie poll.")
 

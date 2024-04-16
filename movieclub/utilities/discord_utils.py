@@ -2,7 +2,7 @@ import logging
 from discord.ext.commands import Context
 from discord import TextChannel, ForumTag, NotFound, HTTPException
 from discord.ui import Modal, Item
-from typing import List, Dict, Optional, Union, Callable
+from typing import List, Optional, Union, Callable
 
 
 # Initialize logging

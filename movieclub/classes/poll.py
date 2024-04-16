@@ -1,9 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
-import uuid
-from typing import TYPE_CHECKING, Dict, List, Optional
 
-from discord.errors import NotFound, Forbidden, HTTPException
+from discord.errors import NotFound, HTTPException
 
 
 class Poll(ABC):

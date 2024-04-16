@@ -2,7 +2,7 @@ import os
 import requests
 import logging
 from dotenv import load_dotenv
-from typing import Union, Dict, Any, List
+from typing import Union, Dict, Any
 
 
 def configure_logging():

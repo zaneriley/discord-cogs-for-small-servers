@@ -1,4 +1,4 @@
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from typing import List, Union
 from dateutil.relativedelta import relativedelta
 
@@ -8,9 +8,9 @@ class DateUtil:
     def normalize_date(input_date: Union[datetime, date]) -> date:
         """Ensures the input is a datetime.date object."""
         if isinstance(input_date, datetime):
-            return input_date.date()  # Convert datetime to date
+            return input_date.date()
         elif isinstance(input_date, date):
-            return input_date  # Already a date, return as is
+            return input_date
         else:
             raise TypeError(
                 "input_date must be a datetime.datetime or datetime.date instance"

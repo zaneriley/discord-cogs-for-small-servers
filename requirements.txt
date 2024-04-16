@@ -1,0 +1,4 @@
+ruff
+beautifulsoup4
+requests
+holidays

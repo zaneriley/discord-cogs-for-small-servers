@@ -1,19 +1,18 @@
 import logging
-from typing import Dict, List, Union, Optional, Iterable
+from typing import Dict, List, Optional, Iterable
 from collections import defaultdict
 import random
 import re
 
 import discord
 from discord import ui
-from discord import ui, Embed, Button, ButtonStyle
-from discord.ui import Button, View
+from discord import Button, ButtonStyle
+from discord.ui import View
 from discord.errors import HTTPException
-from holidays.countries.united_states import UnitedStates
 
 # Application-specific imports
 from .poll import Poll
-from ..constants import MOVIE_CLUB_LOGO, DISCORD_EMBED_COLOR
+from ..constants import MOVIE_CLUB_LOGO
 from ..utilities.api_handlers.movie_data_fetcher import movie_data_to_discord_format
 from ..utilities.discord_utils import create_discord_thread
 
@@ -221,7 +220,7 @@ class MoviePoll(Poll):
     async def add_vote(self, user_id: str, movie_name: str):
         """Adds a vote for a movie."""
         try:
-            logging.debug(f"Fetching current votes and user votes")
+            logging.debug("Fetching current votes and user votes")
             user_votes = defaultdict(dict, await self.get_user_votes())
             votes = defaultdict(int, await self.get_votes())
             logging.debug(f"Fetched votes: {votes} and user votes: {user_votes}")
