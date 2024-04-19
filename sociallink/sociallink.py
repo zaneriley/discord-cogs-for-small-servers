@@ -1,4 +1,7 @@
+from utilities.date_utils import DateUtil
+
 from redbot.core import Config, commands
+
 
 import os
 import logging
@@ -54,36 +57,36 @@ class SocialLink(commands.Cog):
         self.config.register_user(**default_user)
         self.voice_sessions = {}  # {user_id: {"start": datetime, "channel": channel_id}}
 
-        @commands.Cog.listener()
-        async def on_ready(self):
-            guild_id = GUILD_ID  # Assuming GUILD_ID is the ID of your guild
-            guild = self.bot.get_guild(guild_id)
-            if guild is None:
-                logger.error(f"Guild with ID {guild_id} not found.")
-                return
+    @commands.Cog.listener()
+    async def on_ready(self):
+        guild_id = GUILD_ID  # Assuming GUILD_ID is the ID of your guild
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            logger.error(f"Guild with ID {guild_id} not found.")
+            return
 
-            members = guild.members  # This gets all members of the guild
-            async with self.config.all_users() as all_users:
-                for member in members:
+        members = guild.members  # This gets all members of the guild
+        async with self.config.all_users() as all_users:
+            for member in members:
+                if (
+                    member.bot
+                ):  # Skip bot accounts to avoid unnecessary data storage
+                    continue
+                user_scores = all_users.get(str(member.id), {}).get("scores", {})
+                for other_member in members:
                     if (
-                        member.bot
-                    ):  # Skip bot accounts to avoid unnecessary data storage
+                        other_member.id == member.id or other_member.bot
+                    ):  # Skip self and bots
                         continue
-                    user_scores = all_users.get(str(member.id), {}).get("scores", {})
-                    for other_member in members:
-                        if (
-                            other_member.id == member.id or other_member.bot
-                        ):  # Skip self and bots
-                            continue
-                        # Initialize score if not exist
-                        if str(other_member.id) not in user_scores:
-                            user_scores[str(other_member.id)] = 0
-                    all_users[str(member.id)] = {
-                        "scores": user_scores,
-                        "aggregate_score": 0,
-                    }
+                    # Initialize score if not exist
+                    if str(other_member.id) not in user_scores:
+                        user_scores[str(other_member.id)] = 0
+                all_users[str(member.id)] = {
+                    "scores": user_scores,
+                    "aggregate_score": 0,
+                }
 
-            logger.info("SocialLink cog ready and social link scores initialized")
+        logger.info("SocialLink cog ready and social link scores initialized")
 
     @commands.group(aliases=["slink", "sl"])
     async def sociallink(self, ctx):
@@ -131,7 +134,7 @@ class SocialLink(commands.Cog):
             level = await self.calculate_level(score)
             stars = "★" * level + "☆" * (10 - level)
             message += f"<@{confidant_id}>: {stars} `{score} pts` \n"
-        message += f"\nAggregate Score: {user_data.get('aggregate_score', 0)} pts```"
+        message += f"\nAggregate Score: {user_data.get('aggregate_score', 0)} pts"
 
         await ctx.send(message)
 
@@ -204,22 +207,34 @@ class SocialLink(commands.Cog):
             score -= base_s_link + (level**level_exponent)
         return level  # TODO: Add TIME DECAY
 
-    # # Listeners for sLink activity
-    # @commands.Cog.listener()
-    # async def on_voice_state_update(self, member, before: VoiceState, after: VoiceState):
-    #     # Ignore bot's own voice state updates
-    #     if member.bot:
-    #         return
+    # Listeners for sLink activity
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        try:
+            logging.info(f"Voice state update for {member.display_name} ({member.id})")
 
-    #     user_id = member.id
-    #     now = datetime.now()
+            if member.bot:
+                logging.debug("Ignoring bot's own voice state update.")
+                return
 
-    #     # User joins a voice channel
-    #     if before.channel is None and after.channel is not None:
-    #         self.voice_sessions[user_id] = {"start": now, "channel": after.channel.id}
+            user_id = member.id
+            now = DateUtil.now()
 
-    #     # User leaves a voice channel or switches to another channel
-    #     elif before.channel is not None and (after.channel is None or before.channel.id != after.channel.id):
-    #         session = self.voice_sessions.pop(user_id, None)
-    #         if session and (now - session["start"]).total_seconds() >= 1800:  # 30 minutes
-    #             await self.update_social_link_points(member, session["channel"])
+            if before.channel is None and after.channel is not None:
+                logging.info(f"{member.display_name} joined voice channel {after.channel.name} ({after.channel.id})")
+                self.voice_sessions[user_id] = {"start": now, "channel": after.channel.id}
+
+            elif before.channel is not None and (after.channel is None or before.channel.id != after.channel.id):
+                session = self.voice_sessions.pop(user_id, None)
+                if session:
+                    duration = (now - session["start"]).total_seconds()
+                    logging.info(f"{member.display_name} left voice channel {before.channel.name} ({before.channel.id}) after {duration} seconds")
+                    if duration >= 1800:  # 30 minutes
+                        logging.info(f"Updating social link points for {member.display_name} due to session duration.")
+                        await self.update_social_link_points(member, session["channel"])
+                    else:
+                        logging.info(f"Session duration for {member.display_name} was less than 30 minutes; no points updated.")
+                else:
+                    logging.warning(f"No session found for {member.display_name} ({member.id}) on voice state update.")
+        except Exception as e:
+            logging.error(f"Error handling voice state update for {member.display_name} ({member.id}): {e}")
