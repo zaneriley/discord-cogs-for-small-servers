@@ -4,6 +4,12 @@ from dateutil.relativedelta import relativedelta
 
 
 class DateUtil:
+    """
+    Utility class for working with dates and timedeltas.
+    These largely focus on ensuring consistent dates by removing or preventing datetime objects from being created.
+    If you need to work with datetime objects, use the datetime module directly.
+    """
+
     @staticmethod
     def normalize_date(input_date: Union[datetime, date]) -> date:
         """Ensures the input is a datetime.date object."""
