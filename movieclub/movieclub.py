@@ -13,10 +13,10 @@ from redbot.core import commands, Config
 from redbot.core.bot import Red
 
 # Local imports
-from .classes.date_poll import DatePoll
-from .classes.movie_poll import MoviePoll
-from .utilities.api_handlers.movie_data_fetcher import get_movie_discord_embed
-from .utilities.discord_utils import create_discord_thread
+from movieclub.classes.date_poll import DatePoll
+from movieclub.classes.movie_poll import MoviePoll
+from movieclub.api_handlers.movie_data_fetcher import get_movie_discord_embed
+from utilities.discord_utils import create_discord_thread
 
 
 # Initialize logging
@@ -123,9 +123,7 @@ class MovieClub(commands.Cog):
 
         if action.lower() == "start":
             try:
-                if "date_poll" in self.active_polls.keys():  # proceed if poll is active
-                    # is_date_poll_active = await self.active_polls[Poll.poll_id].is_active()
-                    # if is_date_poll_active:
+                if "date_poll" in self.active_polls.keys():
                     await ctx.send("A date poll is already active.")
                     return
                 else:
@@ -148,9 +146,7 @@ class MovieClub(commands.Cog):
                 "date_poll" in self.active_polls.keys()
             ):  # check if poll is in active polls using new poll_id
                 await self.active_polls["date_poll"].end_poll(ctx)
-                del self.active_polls[
-                    "date_poll"
-                ]  # remove poll from active polls using new poll_id
+                del self.active_polls["date_poll"]
             else:
                 await ctx.send("No active date poll in this channel.")
         else:

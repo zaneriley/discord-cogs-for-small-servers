@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
-*.p*
+*.plandex
+*.ruff_cache
 venv/
 .idea/
 .vscode/

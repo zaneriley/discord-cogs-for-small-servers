@@ -1,14 +1,12 @@
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from redbot.core import commands, Config
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 import re
 import base64
 
 import discord
 from discord.ext import tasks
-from discord.errors import HTTPException, NotFound, Forbidden
 from redbot.core.bot import Red
 import logging
 
@@ -16,7 +14,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 IDENTIFIER = int(os.getenv("IDENTIFIER", "1234567890"))
-GUILD_ID = int(os.getenv("GUILD_ID", "NO GUILD ID SET"))
+GUILD_ID = int(os.getenv("GUILD_ID", "947277446678470696"))
 image_path = os.path.abspath(os.path.join("assets", "your-image.png"))
 logger.debug(f"Absolute image path: {image_path}")
 
@@ -91,7 +89,7 @@ class SeasonalRoles(commands.Cog):
     def cog_unload(self):
         self.check_holidays.cancel()
 
-    @commands.group()
+    @commands.group(aliases=["seasonalroles"])
     async def seasonal(self, ctx):
         """Commands related to seasonal roles."""
         if ctx.invoked_subcommand is None:
@@ -124,7 +122,12 @@ class SeasonalRoles(commands.Cog):
     @commands.has_permissions(manage_roles=True)
     @holiday.command(name="add")
     async def add_holiday(
-        self, ctx: commands.Context, name: str, date: str, color: str
+        self,
+        ctx: commands.Context,
+        name: str,
+        date: str,
+        color: str,
+        image: Optional[str] = None,
     ) -> None:
         """Add a new holiday."""
         valid = await self.validate_holiday(ctx, name, date, color)
@@ -138,9 +141,83 @@ class SeasonalRoles(commands.Cog):
             return
         else:
             holidays[name] = {"date": date, "color": color}
+            if image:
+                holidays[name]["image"] = image
             await self.config.guild(ctx.guild).holidays.set(holidays)
 
         await self.check_holidays(ctx, ctx.guild, date)
+
+    @holiday.command(name="edit")
+    async def edit_holiday(
+        self,
+        ctx: commands.Context,
+        name: str,
+        date: str,
+        color: str,
+        image: Optional[str] = None,
+    ) -> None:
+        """Edit an existing holiday's details."""
+        valid = await self.validate_holiday(ctx, name, date, color)
+        if not valid:
+            return
+
+        holidays = await self.config.guild(ctx.guild).holidays()
+        if not holidays.get(name):
+            await ctx.send(f"Holiday {name} does not exist!")
+            return
+        else:
+            holidays[name] = {"date": date, "color": color}
+            if image:
+                holidays[name]["image"] = image
+            await self.config.guild(ctx.guild).holidays.set(holidays)
+            await ctx.send(f"Holiday {name} has been updated successfully.")
+
+    @holiday.command(name="remove")
+    async def remove_holiday(self, ctx: commands.Context, name: str) -> None:
+        """Remove an existing holiday."""
+        holidays = await self.config.guild(ctx.guild).holidays()
+        if not holidays.get(name):
+            await ctx.send(f"Holiday {name} does not exist!")
+            return
+        else:
+            del holidays[name]
+            await self.config.guild(ctx.guild).holidays.set(holidays)
+            await ctx.send(f"Holiday {name} has been removed successfully.")
+
+    @holiday.command(name="list")
+    async def list_holidays(self, ctx: commands.Context):
+        """Lists all configured holidays along with their details."""
+        try:
+            # Fetching holiday data from the configuration
+            holidays = await self.config.guild(ctx.guild).holidays()
+
+            # Handling the case where no holidays are configured
+            if not holidays:
+                await ctx.send("No holidays have been configured.")
+                return
+
+            # Preparing a list of embeds for each holiday
+            embeds = []
+            for name, details in holidays.items():
+                color = int(details["color"].replace("#", ""), 16)
+                embed = discord.Embed(description=details["date"], color=color)
+
+                # TODO: Add icons as icon_url in embed
+                if "image" in details:
+                    embed.set_author(name=name)
+                else:
+                    embed.set_author(name=name)
+
+                embeds.append(embed)
+
+            for embed in embeds:
+                await ctx.send(embed=embed)
+
+        except Exception as e:
+            await ctx.send(
+                "An error occurred while listing holidays. Please try again later."
+            )
+            logger.error(f"Error listing holidays: {e}")
 
     async def add_holiday_role(
         self,
@@ -289,7 +366,7 @@ class SeasonalRoles(commands.Cog):
                     role = discord.utils.get(ctx.guild.roles, name=holiday)
                     if role and role in ctx.author.roles:
                         await ctx.author.add_roles(role)
-            await ctx.send(f"You have opted in to the seasonal role.")
+            await ctx.send("You have opted in to the seasonal role.")
         else:
             opt_out_users.append(ctx.author.id)
 
@@ -306,7 +383,7 @@ class SeasonalRoles(commands.Cog):
                     role = discord.utils.get(ctx.guild.roles, name=holiday)
                     if role and role in ctx.author.roles:
                         await ctx.author.remove_roles(role)
-            await ctx.send(f"You have opted out from the seasonal role.")
+            await ctx.send("You have opted out from the seasonal role.")
 
         await self.config.guild(ctx.guild).opt_out_users.set(opt_out_users)
 
@@ -412,7 +489,7 @@ class SeasonalRoles(commands.Cog):
                 role = discord.utils.get(guild.roles, name=holiday)
                 logger.debug(f"Role: {role}")
                 if not role:
-                    logger.debug(f"Role not found, creating")
+                    logger.debug("Role not found, creating")
                     role = await self.add_holiday_role(
                         ctx,
                         holiday,
@@ -428,7 +505,7 @@ class SeasonalRoles(commands.Cog):
                     role = discord.utils.get(guild.roles, name=ended_holiday)
                     if role:
                         logger.debug(f"Stale ended holiday detected: {ended_holiday}")
-                        logger.debug(f"Role found, removing")
+                        logger.debug("Role found, removing")
                         await self.remove_role_from_all(guild, role)
                         await role.delete()
 

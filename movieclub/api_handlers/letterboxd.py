@@ -12,7 +12,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-
 def construct_search_url(movie_title: str) -> str:
     try:
         logging.info(f"Constructing search URL for {movie_title}...")

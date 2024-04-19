@@ -11,10 +11,10 @@ from discord.ui import View
 from discord.errors import HTTPException
 
 # Application-specific imports
-from .poll import Poll
-from ..constants import MOVIE_CLUB_LOGO
-from ..utilities.api_handlers.movie_data_fetcher import movie_data_to_discord_format
-from ..utilities.discord_utils import create_discord_thread
+from movieclub.classes.poll import Poll
+from movieclub.constants import MOVIE_CLUB_LOGO
+from movieclub.api_handlers.movie_data_fetcher import movie_data_to_discord_format
+from utilities.discord_utils import create_discord_thread
 
 MAX_BUTTON_LABEL_SIZE = 16
 MAX_BUTTONS_IN_ROW = 5
@@ -137,6 +137,7 @@ class MoviePoll(Poll):
             if winner_movie:
                 trailer_url = winner_movie_data.get("trailer_url")
                 # TODO: check to see if target_role is None
+                # TODO: Add the date of movie via the <t:1716339600:t> format
                 trailer_message = (
                     f"\n[Watch the trailer]({trailer_url})\n\n\u200B See you <@&{target_role}> holders there! <:fingercrossed:1103626715663712286>\n\u200B"
                     if trailer_url

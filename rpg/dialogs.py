@@ -2,7 +2,11 @@ import os
 import json
 from typing import Dict
 
-logger = get_logger(__name__)
+import logging
+
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 class DialogNotFoundError(Exception):

@@ -16,9 +16,9 @@ from discord.errors import HTTPException
 from holidays.countries.united_states import UnitedStates
 
 # Application-specific imports
-from .poll import Poll
-from ..constants import MOVIE_CLUB_LOGO
-from ..utilities import DateUtil
+from movieclub.classes.poll import Poll
+from movieclub.constants import MOVIE_CLUB_LOGO
+from utilities.date_utils import DateUtil
 
 
 def last_days_of_month(input_date: date, final_days: int = 14) -> List[date]:
@@ -34,8 +34,8 @@ def get_filtered_candidate_dates(
     candidate_dates: List[date], us_holidays: Set[date]
 ) -> List[date]:
     filtered_dates = []
-    removed_dates = []  # Keep track of removed dates
-    removal_reasons = defaultdict(int)  # Keep track of removal reasons
+    removed_dates = []
+    removal_reasons = defaultdict(int)
 
     for candidate_date in candidate_dates:
         # Assume weekends are 6 (Saturday) and 7 (Sunday), and Monday is 1
@@ -52,7 +52,6 @@ def get_filtered_candidate_dates(
             continue
         filtered_dates.append(candidate_date)
 
-    # Log the removed dates and the dates that remain after filtering
     if removed_dates:
         logging.debug(f"Removed dates: {', '.join(map(str, removed_dates))}")
     if filtered_dates:

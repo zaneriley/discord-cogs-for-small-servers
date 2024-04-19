@@ -1,6 +1,5 @@
 import os
-from collections import defaultdict
-from typing import Dict, Union, List, Optional
+from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -8,13 +7,14 @@ load_dotenv()
 import discord
 from discord.ext import commands
 from discord.errors import HTTPException, NotFound, Forbidden
-from redbot.core import commands, Config, app_commands
+from redbot.core import Config, app_commands
 from redbot.core.bot import Red
 
 from .dialogs import DialogManager
-from .logging_config import get_logger
+import logging
 
-logger = get_logger(__name__)
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 IDENTIFIER = int(os.getenv("IDENTIFIER", "1234567890"))
 

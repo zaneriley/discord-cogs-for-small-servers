@@ -1,3 +1,7 @@
+from movieclub.api_handlers.tmdb import fetch_movie_details as fetch_tmdb_details
+from movieclub.api_handlers.letterboxd import fetch_letterboxd_details_wrapper as fetch_letterboxd_details
+from movieclub.api_handlers.letterboxd import construct_url, fetch_reviews, parse_review_data
+
 import logging
 import os
 from dotenv import load_dotenv
@@ -8,9 +12,7 @@ import discord
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), "../../../.env"))
 
-from .tmdb import fetch_movie_details as fetch_tmdb_details
-from .letterboxd import fetch_letterboxd_details_wrapper as fetch_letterboxd_details
-from .letterboxd import construct_url, fetch_reviews, parse_review_data
+
 
 
 # Configure logging
