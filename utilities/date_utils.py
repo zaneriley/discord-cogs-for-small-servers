@@ -38,9 +38,9 @@ class DateUtil:
         return date - delta(days=days)
 
     @staticmethod
-    def str_to_date(date_string: str, format_str: str = "%a, %b %d, %Y") -> List[date]:
+    def str_to_date(date_string: str, format_str: str = "%a, %b %d, %Y") -> datetime.date:
         """Converts a date string to a date object using the specified format string"""
-        return date.strp(date_string, format_str)
+        return datetime.strptime(date_string, format_str).date()
 
     @staticmethod
     def sort_dates(dates: List[date]) -> List[date]:

@@ -1,15 +1,19 @@
 import os
-from typing import Any, Dict, Optional
-from redbot.core import commands, Config
+from typing import Any, Dict, Optional, Tuple
+
+
 from datetime import datetime, timedelta
 import re
 import base64
-
+import aiohttp
 import discord
 from discord.ext import tasks
 from redbot.core.bot import Red
+from redbot.core import Config, commands, app_commands
+
 import logging
 
+from .holiday_management import HolidayService
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -18,7 +22,10 @@ GUILD_ID = int(os.getenv("GUILD_ID", "947277446678470696"))
 image_path = os.path.abspath(os.path.join("assets", "your-image.png"))
 logger.debug(f"Absolute image path: {image_path}")
 
-
+# Continue porting role comands to role_mangement. 
+# Adding roles to members needs to be tested.
+# Finally, refactor the image handling for role_icons and banners
+# The goal is the bot to handle kid's day on 5-5
 class SeasonalRoles(commands.Cog):
     def __init__(self, bot: Red) -> None:
         """
@@ -33,6 +40,7 @@ class SeasonalRoles(commands.Cog):
         )
         self.config.register_guild()
         default_guild = {
+            "notification_channel": None,
             "holidays": {
                 "New Year's Celebration": {
                     "date": "01-01",
@@ -44,7 +52,7 @@ class SeasonalRoles(commands.Cog):
                     "color": "#906D8D",
                     "image": "assets/spring-blossom-01.png",
                 },
-                "Kids Day": {"date": "05-05", "color": "#68855A"},
+                "Kids Day": {"date": "05-05", "color": "#68855A", "banner": "assets/kids-day-banner-01.png"},
                 "Midsummer Festival": {"date": "06-21", "color": "#4A6E8A"},
                 "Star Festival": {"date": "07-07", "color": "#D4A13D"},
                 "Friendship Day": {
@@ -68,11 +76,13 @@ class SeasonalRoles(commands.Cog):
             "seasonal_role": None,
             "applied_holidays": [],
             "last_checked_date": None,
-            "opt_out_users": [],
+            "opt_in_users": [],
             "role_members": [],  # tracking so it's more efficient to remove the role from everyone
             "dry_run_mode": True,
         }
         self.config.register_guild(**default_guild)
+        self.holiday_service = HolidayService(self.config)
+
         logger.info("Seasonal roles cog initialized")
 
     @commands.Cog.listener()
@@ -89,13 +99,89 @@ class SeasonalRoles(commands.Cog):
     def cog_unload(self):
         self.check_holidays.cancel()
 
-    @commands.group(aliases=["seasonalroles"])
+    @commands.group(aliases=["seasonalroles", "sroles", "sr"])
     async def seasonal(self, ctx):
         """Commands related to seasonal roles."""
         if ctx.invoked_subcommand is None:
             await ctx.send("Invalid seasonal command passed.")
 
-    @seasonal.group()
+    @seasonal.group(name="member", aliases=["members"])
+    async def member(self, ctx):
+        """Subcommand group for managing member configurations."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send("Invalid member command passed.")
+
+    @member.command(name="add")
+    async def member_add(self, ctx, member: discord.Member):
+        """Adds a member to the opt-in list."""
+        opt_in_users = await self.config.guild(ctx.guild).opt_in_users()
+        if member.id not in opt_in_users:
+            opt_in_users.append(member.id)
+            await self.config.guild(ctx.guild).opt_in_users.set(opt_in_users)
+            await ctx.send(f"{member.display_name} has been added to the {self.qualified_name}.")
+        else:
+            await ctx.send(f"{member.display_name} is already in the {self.qualified_name}.")
+
+    @member.command(name="remove")
+    async def member_remove(self, ctx, member: Optional[discord.Member], *, all_members: str = None):
+        """Removes a member or all members from the opt-in list."""
+        if all_members and all_members.lower() in {"everyone", "all", "everybody"}:
+            await self.config.guild(ctx.guild).opt_in_users.set([])
+            await ctx.send("All members have been removed from the opt-in list.")
+        elif member:
+            opt_in_users = await self.config.guild(ctx.guild).opt_in_users()
+            if member.id in opt_in_users:
+                opt_in_users.remove(member.id)
+                await self.config.guild(ctx.guild).opt_in_users.set(opt_in_users)
+                await ctx.send(f"{member.display_name} has been removed from the {self.qualified_name}.")
+            else:
+                await ctx.send(f"{member.display_name} is not in the {self.qualified_name}.")
+        else:
+            await ctx.send("Invalid command usage. Please specify a member or use 'everyone' to remove all.")
+
+    @member.command(name="config")
+    async def member_config(self, ctx, config_type: str):
+        """Configures the opt-in list based on the given type: 'everyone' or a role name."""
+        all_members_synonyms = {"everyone", "all", "everybody"}
+
+        if config_type.lower() in all_members_synonyms:
+            members = [member.id for member in ctx.guild.members if not member.bot]
+            await ctx.send(f"Adding everyone to {self.qualified_name}...")
+        else:
+            role = discord.utils.get(ctx.guild.roles, name=config_type)
+            if role:
+                members = [member.id for member in role.members if not member.bot]
+            else:
+                await ctx.send(f"No role named {config_type} found.")
+                return
+        await self.config.guild(ctx.guild).opt_in_users.set(members)
+        await ctx.send(f"Successfully added {config_type} to {self.qualified_name}.")
+    
+    @member.command(name="list")
+    async def member_list(self, ctx):
+        """Lists all members who have opted in."""
+        opt_in_users = await self.config.guild(ctx.guild).opt_in_users()
+        if not opt_in_users:
+            await ctx.send("No members have opted in.")
+            return
+
+        # Fetching member objects from IDs
+        members = [ctx.guild.get_member(user_id) for user_id in opt_in_users]
+        # Filtering out None values if the member is not found in the guild
+        members = [member for member in members if member is not None]
+
+        if not members:
+            await ctx.send(f"No valid members found in the {self.qualified_name}.")
+            return
+
+        # Creating a list of member names to display
+        member_names = [member.display_name for member in members]
+        member_list_str = ", ".join(member_names)
+
+        # Sending the list of members
+        await ctx.send(f"Opted-in members: {member_list_str}")
+
+    @seasonal.group(aliases=["holidays"])
     async def holiday(self, ctx):
         """Commands related to holidays."""
         if ctx.invoked_subcommand is None:
@@ -128,95 +214,69 @@ class SeasonalRoles(commands.Cog):
         date: str,
         color: str,
         image: Optional[str] = None,
+        banner_url: Optional[str] = None
     ) -> None:
         """Add a new holiday."""
         valid = await self.validate_holiday(ctx, name, date, color)
         if not valid:
             return
 
-        holidays = await self.config.guild(ctx.guild).holidays()
-        # If holiday already exist, add it
-        if holidays.get(name):
-            await ctx.send(f"Holiday {name} already exists!")
-            return
-        else:
-            holidays[name] = {"date": date, "color": color}
-            if image:
-                holidays[name]["image"] = image
-            await self.config.guild(ctx.guild).holidays.set(holidays)
+        success, message = await self.holiday_service.add_holiday(ctx.guild, name, date, color, image, banner_url)
+        await ctx.send(message)
 
-        await self.check_holidays(ctx, ctx.guild, date)
+        if success:
+            await self.check_holidays(ctx, ctx.guild, date)
 
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True)
     @holiday.command(name="edit")
-    async def edit_holiday(
-        self,
-        ctx: commands.Context,
-        name: str,
-        date: str,
-        color: str,
-        image: Optional[str] = None,
-    ) -> None:
+    async def edit_holiday_command(self, ctx, name: str, date: str, color: str, image: Optional[str] = None, banner_url: Optional[str] = None):
         """Edit an existing holiday's details."""
         valid = await self.validate_holiday(ctx, name, date, color)
         if not valid:
             return
 
-        holidays = await self.config.guild(ctx.guild).holidays()
-        if not holidays.get(name):
-            await ctx.send(f"Holiday {name} does not exist!")
-            return
-        else:
-            holidays[name] = {"date": date, "color": color}
-            if image:
-                holidays[name]["image"] = image
-            await self.config.guild(ctx.guild).holidays.set(holidays)
-            await ctx.send(f"Holiday {name} has been updated successfully.")
+        success, message = await self.holiday_service.edit_holiday(ctx.guild, name, date, color, image, banner_url)
+        await ctx.send(message)
 
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True)
     @holiday.command(name="remove")
     async def remove_holiday(self, ctx: commands.Context, name: str) -> None:
         """Remove an existing holiday."""
-        holidays = await self.config.guild(ctx.guild).holidays()
-        if not holidays.get(name):
-            await ctx.send(f"Holiday {name} does not exist!")
-            return
-        else:
-            del holidays[name]
-            await self.config.guild(ctx.guild).holidays.set(holidays)
-            await ctx.send(f"Holiday {name} has been removed successfully.")
+        success, message = await self.holiday_service.remove_holiday(ctx.guild, name)
+        await ctx.send(message)
 
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True)
     @holiday.command(name="list")
     async def list_holidays(self, ctx: commands.Context):
         """Lists all configured holidays along with their details."""
         try:
-            # Fetching holiday data from the configuration
-            holidays = await self.config.guild(ctx.guild).holidays()
-
-            # Handling the case where no holidays are configured
-            if not holidays:
+            logging.info(f"Holiday service looks like: {self.holiday_service}")
+            sorted_holidays, upcoming_holiday, days_until = await self.holiday_service.get_sorted_holidays(ctx.guild)
+            if not sorted_holidays:
                 await ctx.send("No holidays have been configured.")
                 return
 
-            # Preparing a list of embeds for each holiday
             embeds = []
-            for name, details in holidays.items():
+            for name, _ in sorted_holidays:
+                details = await self.config.guild(ctx.guild).holidays.get_raw(name)
                 color = int(details["color"].replace("#", ""), 16)
-                embed = discord.Embed(description=details["date"], color=color)
-
-                # TODO: Add icons as icon_url in embed
-                if "image" in details:
-                    embed.set_author(name=name)
-                else:
-                    embed.set_author(name=name)
-
+                description = details["date"]
+                if name == upcoming_holiday:
+                    description += " - Upcoming in " + str(days_until[name]) + " days"
+                elif days_until[name] <= 0:
+                    description += " - Passed " + str(-days_until[name]) + " days ago"
+                embed = discord.Embed(description=description, color=color)
+                embed.set_author(name=name)
                 embeds.append(embed)
 
             for embed in embeds:
                 await ctx.send(embed=embed)
 
         except Exception as e:
-            await ctx.send(
-                "An error occurred while listing holidays. Please try again later."
-            )
+            await ctx.send("An error occurred while listing holidays. Please try again later.")
             logger.error(f"Error listing holidays: {e}")
 
     async def add_holiday_role(
@@ -314,6 +374,7 @@ class SeasonalRoles(commands.Cog):
             )
 
     @commands.guild_only()
+    @commands.has_permissions(manage_roles=True)
     @seasonal.command(name="dryrun")
     async def toggle_dry_run(self, ctx: commands.Context, mode: str):
         """Toggle dry run mode for seasonal role actions."""
@@ -343,9 +404,7 @@ class SeasonalRoles(commands.Cog):
         except Exception as e:
             logger.error(f"Error in toggle_dry_run: {e}")
 
-    @commands.guild_only()
-    @commands.has_permissions(manage_roles=True)
-    @seasonal.command(name="opt")
+    #TODO TURN INTO SLASH COMMAND
     async def toggle_seasonal_role(self, ctx: commands.Context) -> None:
         """Toggle opting in/out from the seasonal role."""
 
@@ -366,7 +425,7 @@ class SeasonalRoles(commands.Cog):
                     role = discord.utils.get(ctx.guild.roles, name=holiday)
                     if role and role in ctx.author.roles:
                         await ctx.author.add_roles(role)
-            await ctx.send("You have opted in to the seasonal role.")
+            await ctx.respond("You have opted in to the seasonal role.")
         else:
             opt_out_users.append(ctx.author.id)
 
@@ -383,7 +442,7 @@ class SeasonalRoles(commands.Cog):
                     role = discord.utils.get(ctx.guild.roles, name=holiday)
                     if role and role in ctx.author.roles:
                         await ctx.author.remove_roles(role)
-            await ctx.send("You have opted out from the seasonal role.")
+            await ctx.respond("You have opted out from the seasonal role.")
 
         await self.config.guild(ctx.guild).opt_out_users.set(opt_out_users)
 
@@ -414,6 +473,7 @@ class SeasonalRoles(commands.Cog):
         if guild is None:
             logger.error("Guild not set for check_holidays task.")
             return
+    
         # Determine Target Date with Error Handling
         try:
             if date_str:
@@ -666,6 +726,40 @@ class SeasonalRoles(commands.Cog):
             logger.info(
                 f"Would have removed role from {len(guild.members)} members in {guild.name}"
             )
+
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True)
+    @seasonal.command(name="banner")
+    async def change_server_banner_command(self, ctx, url: str):
+        """Command to change the server banner."""
+        if not ctx.guild:
+            await ctx.send("This command can only be used in a server.")
+            return
+
+        if not ctx.author.guild_permissions.manage_guild:
+            await ctx.send("You need the 'Manage Server' permission to use this command.")
+            return
+
+        if ctx.guild.premium_tier < 2:
+            await ctx.send("This server needs to be at least level 2 boosted to change the banner.")
+            return
+
+        result = await self.change_server_banner(ctx.guild, url)
+        await ctx.send(result)
+
+    async def change_server_banner(self, guild, url):
+        """Helper method to change the server banner."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        image_bytes = await response.read()
+                        await guild.edit(banner=image_bytes)
+                        return "Banner changed successfully!"
+                    else:
+                        return "Failed to download the image from the provided URL."
+        except Exception as e:
+            return f"An error occurred: {e}"
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
