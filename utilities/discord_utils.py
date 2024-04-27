@@ -1,11 +1,14 @@
+
 import logging
 from discord.ext.commands import Context
 from discord import TextChannel, ForumTag, NotFound, HTTPException
 from discord.ui import Modal, Item
 from typing import List, Optional, Union, Callable
+import aiofiles
+import aiohttp
+import os
 
 
-# Initialize logging
 logger = logging.getLogger(__name__)
 
 
@@ -217,3 +220,52 @@ async def create_discord_modal(
         return None
 
 
+async def fetch_and_save_guild_banner(guild, save_path):
+    if guild.banner is None:
+        logger.error("Guild does not have a banner.")
+        return None
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    logger.info(f"os.path.dirname(save_path): {os.path.dirname(save_path)}")
+    banner_url = str(guild.banner)  # Ensure the URL is a string
+    logger.info(f"Guild: {guild} \n Banner URL: {banner_url} \n Save path: {save_path}")
+
+    try:
+        # Validate the URL format (simple check)
+        if not banner_url.startswith("http"):
+            logger.error("Invalid URL format.")
+            return None
+
+        # Ensure the session is properly managed with async with
+        async with aiohttp.ClientSession() as session:
+            async with session.get(banner_url) as response:
+                if response.status == 200:
+                    with open(save_path, 'wb') as f:
+                        f.write(await response.read())
+                    logger.info(f"Banner successfully saved to {save_path}")
+                    return save_path
+                else:
+                    logger.error(f"Failed to fetch guild banner: HTTP {response.status}")
+                    return None
+    except aiohttp.ClientError as e:
+        logger.error(f"Client error occurred while fetching the guild banner: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"General error fetching guild banner: {e}")
+        return None
+
+async def restore_guild_banner(guild, file_path, delete_after_restore=False):
+    """Restores the guild's banner from a saved file."""
+    try:
+        async with aiofiles.open(file_path, 'rb') as file:
+            image_data = await file.read()
+        await guild.edit(banner=image_data)
+        logger.info("Guild banner restored successfully.")
+        if delete_after_restore:
+            os.remove(file_path)
+            logger.info(f"Banner file {file_path} deleted after restoration.")
+    except FileNotFoundError:
+        logger.error("Banner file not found.")
+    except Exception as e:
+        logger.error(f"Failed to restore guild banner: {e}")
+        raise

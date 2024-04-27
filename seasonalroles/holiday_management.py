@@ -79,7 +79,7 @@ class HolidayService:
         past_holidays = {name: days for name, days in days_until.items() if days <= 0}
 
         sorted_future_holidays = sorted(future_holidays.items(), key=lambda x: x[1])
-        sorted_past_holidays = sorted(past_holidays.items(), key=lambda x: x[1], reverse=True)
+        sorted_past_holidays = sorted(past_holidays.items(), key=lambda x: x[1], reverse=False)
 
         sorted_holidays = sorted_future_holidays + sorted_past_holidays
         return sorted_holidays, upcoming_holiday, days_until
