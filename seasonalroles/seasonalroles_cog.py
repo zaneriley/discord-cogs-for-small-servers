@@ -1,19 +1,20 @@
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Optional
 
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import re
-import base64
-import aiohttp
 import discord
 from discord.ext import tasks
 from redbot.core.bot import Red
-from redbot.core import Config, commands, app_commands
+from redbot.core import Config, commands
 
 import logging
 
 from .holiday_management import HolidayService
+from .role_management import RoleManager
+from utilities.date_utils import DateUtil
+from utilities.image_utils import get_image_handler
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -22,9 +23,8 @@ GUILD_ID = int(os.getenv("GUILD_ID", "947277446678470696"))
 image_path = os.path.abspath(os.path.join("assets", "your-image.png"))
 logger.debug(f"Absolute image path: {image_path}")
 
-# Continue porting role comands to role_mangement. 
-# Adding roles to members needs to be tested.
-# Finally, refactor the image handling for role_icons and banners
+# I think forceholiday and force check work now after refactoring.
+
 # The goal is the bot to handle kid's day on 5-5
 class SeasonalRoles(commands.Cog):
     def __init__(self, bot: Red) -> None:
@@ -52,7 +52,7 @@ class SeasonalRoles(commands.Cog):
                     "color": "#906D8D",
                     "image": "assets/spring-blossom-01.png",
                 },
-                "Kids Day": {"date": "05-05", "color": "#68855A", "banner": "assets/kids-day-banner-01.png"},
+                "Kids Day": {"date": "05-05", "color": "#68855A", "image": "assets/kids-day-01.png", "banner": "assets/kids-day-banner-01.png"},
                 "Midsummer Festival": {"date": "06-21", "color": "#4A6E8A"},
                 "Star Festival": {"date": "07-07", "color": "#D4A13D"},
                 "Friendship Day": {
@@ -82,6 +82,7 @@ class SeasonalRoles(commands.Cog):
         }
         self.config.register_guild(**default_guild)
         self.holiday_service = HolidayService(self.config)
+        self.role_manager = RoleManager(self.config)
 
         logger.info("Seasonal roles cog initialized")
 
@@ -290,88 +291,14 @@ class SeasonalRoles(commands.Cog):
         valid = await self.validate_holiday(ctx, name, date, color)
         if not valid:
             return None
-        existing_role = discord.utils.get(ctx.guild.roles, name=name)
-        if not existing_role:
-            role_args = {"name": name, "color": discord.Color(int(color[1:], 16))}
 
-        if image and "ROLE_ICONS" in ctx.guild.features:
-            script_dir = os.path.dirname(__file__)  # Directory of the current script
-            image_path = os.path.join(script_dir, image)
-            logger.debug(f"Checking image path: {image_path}")
-            if os.path.exists(image_path):
-                try:
-                    with open(image_path, "rb") as img_file:
-                        img_data = img_file.read()
-                        img_b64 = base64.b64encode(img_data).decode("utf-8")
-                        role_args["display_icon"] = img_data
-                        logger.debug(
-                            f"Image data for {name} role successfully encoded."
-                        )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to process the image data for {name} role: {e}"
-                    )
-                    await ctx.send(
-                        "An error occurred while processing the holiday role image."
-                    )
-                    return None
-            else:
-                logger.error(f"Image file not found at path: {image_path}")
-                await ctx.send("Image file not found.")
-                return None
-
-        try:
-            # Creating the role
-            role = await ctx.guild.create_role(**role_args)
-            logger.debug(f"Created role {role.name} with icon in {ctx.guild.name}")
-            await self.set_seasonal_role_to_top(ctx.guild, role)
-            logger.debug(f"Set the seasonal role '{role.name}' to the top.")
-            await ctx.send(f"Holiday role '{name}' with icon added successfully!")
-            return role
-        except discord.Forbidden:
-            logger.error("Lack of permissions to create or modify roles.")
-            await ctx.send("I don't have permissions to create or modify roles.")
-        except discord.NotFound:
-            logger.error(
-                "Resource not found. The role or user might have been deleted."
-            )
-            await ctx.send("Failed to find the specified resource.")
-        except discord.HTTPException as e:
-            logger.error(f"HTTP error occurred: {e}")
-            await ctx.send("An error occurred due to a server-side issue.")
-        except TypeError as e:
-            logger.error(f"TypeError occurred: {e}")
-            await ctx.send(
-                "An invalid type was provided for creating or modifying a role."
-            )
-        except Exception as e:
-            logger.error(f"An unexpected error occurred: {e}")
-            await ctx.send("An unexpected error occurred.")
-
-    async def set_seasonal_role_to_top(
-        self, guild: discord.Guild, role: discord.Role
-    ) -> None:
-        bot_member = guild.me  # The bot's member object in the guild
-        bot_roles = sorted(
-            bot_member.roles, key=lambda x: x.position, reverse=True
-        )  # Sort roles by position
-        highest_bot_role = bot_roles[0]  # The highest role the bot has
-
-        if highest_bot_role.position > 1:
-            # Set the seasonal role position to one less than the bot's highest role
-            new_position = highest_bot_role.position - 1
-            positions = {role: new_position}
-            try:
-                await guild.edit_role_positions(positions)
-                logger.debug(
-                    f"Seasonal role '{role.name}' set to position {new_position}."
-                )
-            except Exception as e:
-                logger.error(f"Error setting position of seasonal role: {e}")
+        role_manager = RoleManager(self.config)
+        role = await role_manager.create_or_update_role(ctx.guild, name, color, image)
+        if role:
+            await ctx.send(f"Role '{name}' has been {'updated' if discord.utils.get(ctx.guild.roles, name=name) else 'created'}.")
         else:
-            logger.warning(
-                "Bot does not have sufficient role hierarchy to set the seasonal role position."
-            )
+            await ctx.send("Failed to create or update the role.")
+        return role
 
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
@@ -395,11 +322,11 @@ class SeasonalRoles(commands.Cog):
             mode_str = "enabled" if enabled else "disabled"
             if enabled:
                 await ctx.send(
-                    f"Dry run mode {mode_str}. Actions will now make real changes."
+                    f"Dry run mode {mode_str}. Any actions will be simulated, and no real changes will be made."
                 )
             else:
                 await ctx.send(
-                    f"Dry run mode {mode_str}. Any actions will be simulated, and no real changes will be made."
+                    f"Dry run mode {mode_str}. Actions will now make real changes."
                 )
         except Exception as e:
             logger.error(f"Error in toggle_dry_run: {e}")
@@ -457,281 +384,109 @@ class SeasonalRoles(commands.Cog):
         await ctx.send("Checked holidays for this guild.")
 
     @tasks.loop(hours=24)
-    async def check_holidays(
-        self,
-        guild: Optional[discord.Guild] = None,
-        date_str: Optional[str] = None,
-        force: bool = False,
-    ):
-        """Check holidays and apply/remove roles if needed."""
-        logger.debug("Starting check_holidays loop")
-
-        # If guild is not provided, use the guild set in before_check_holidays
+    async def check_holidays(self, guild: Optional[discord.Guild] = None, date_str: Optional[str] = None, force: bool = False):
         if guild is None:
             guild = self.guild
-
-        if guild is None:
-            logger.error("Guild not set for check_holidays task.")
-            return
-    
-        # Determine Target Date with Error Handling
-        try:
-            if date_str:
-                target_date = (
-                    datetime.strptime(date_str, "%m-%d")
-                    .date()
-                    .replace(year=datetime.now().year)
-                )
-                logger.debug(f"Using provided date: {target_date}")
-            else:
-                target_date = datetime.now().date()
-                logger.debug(f"Using current date: {target_date}")
-        except ValueError:
-            logger.error("Invalid date format provided.")
-            return
-
-        last_checked_date_str = await self.config.guild(guild).last_checked_date()
-        if not force and last_checked_date_str:
-            last_checked_date = datetime.strptime(
-                last_checked_date_str, "%Y-%m-%d"
-            ).date()
-            if last_checked_date >= target_date:
-                logger.debug(
-                    "Last checked date is greater than or equal to target date, skipping"
-                )
-                return  # This date was already checked, skip
+            logger.debug("No guild provided, using default guild.")
 
         try:
-            logger.debug("Checking holidays")
-            holidays: Dict[str, Dict[str, Any]] = await self.config.guild(
-                guild
-            ).holidays()
-            logger.debug(f"Holidays: {holidays}")
-
-            # Determine which holiday is starting, ending, or ongoing
-            starting_holiday = None
-            ended_holidays = []
-            ongoing_holiday = None
-            holiday_details = None
-
-            for holiday, details in holidays.items():
-                holiday_date = (
-                    datetime.strptime(details["date"], "%m-%d")
-                    .date()
-                    .replace(year=target_date.year)
-                )
-                # Check if a holiday is starting
-                if target_date == (holiday_date - timedelta(days=7)):
-                    starting_holiday = holiday
-                    holiday_details = details
-
-                # Check for an ongoing holiday
-                elif (
-                    (holiday_date - timedelta(days=7))
-                    <= target_date
-                    < (holiday_date + timedelta(days=1))
-                ):
-                    ongoing_holiday = holiday
-                    holiday_details = details
-
-                else:
-                    ended_holidays.append(holiday)
-
-            logger.debug(f"Starting holiday: {starting_holiday}")
-            logger.debug(f"Ending holiday: {ended_holidays}")
-            logger.debug(f"Ongoing holiday: {ongoing_holiday}")
-            logger.debug(f"Holiday details: {holiday_details}")
-
-            # Apply role for starting or ongoing holiday
-            if starting_holiday or ongoing_holiday:
-                holiday = starting_holiday if starting_holiday else ongoing_holiday
-                logger.debug(f"Starting or ongoing holiday detected: {holiday}")
-                role = discord.utils.get(guild.roles, name=holiday)
-                logger.debug(f"Role: {role}")
-                if not role:
-                    logger.debug("Role not found, creating")
-                    role = await self.add_holiday_role(
-                        ctx,
-                        holiday,
-                        holiday_details.get("date"),
-                        holiday_details.get("color"),
-                        holiday_details.get("image"),
-                    )
-                    await self.apply_role_to_all(guild, role)
-
-            # Remove role for ended holidays
-            if len(ended_holidays) > 0:
-                for ended_holiday in ended_holidays:
-                    role = discord.utils.get(guild.roles, name=ended_holiday)
-                    if role:
-                        logger.debug(f"Stale ended holiday detected: {ended_holiday}")
-                        logger.debug("Role found, removing")
-                        await self.remove_role_from_all(guild, role)
-                        await role.delete()
-
-            # Save the last checked date
-            await self.config.guild(guild).last_checked_date.set(
-                target_date.strftime("%Y-%m-%d")
-            )
-
+            holidays = await self.config.guild(guild).holidays()
+            logger.debug(f"Retrieved holidays: {holidays}")
         except Exception as e:
-            logger.error(f"Error in check_holidays loop: {e}")
+            logger.error(f"Failed to retrieve holidays from config: {e}")
+            return
+
+        current_date = datetime.now().date()
+        logger.debug(f"Current date: {current_date}")
+
+        for holiday_name, details in holidays.items():
+            holiday_date_str = details['date']
+            formatted_role_name = f"{holiday_name} {holiday_date_str}"
+            try:
+                holiday_date = datetime.strptime(f"{current_date.year}-{holiday_date_str}", "%Y-%m-%d").date()
+                days_until_holiday = (holiday_date - current_date).days
+                logger.debug(f"Holiday '{formatted_role_name}' is {days_until_holiday} days away.")
+            except ValueError as e:
+                logger.error(f"Error parsing date for holiday '{formatted_role_name}': {e}")
+                continue
+
+            if days_until_holiday < 0 or days_until_holiday > 7:
+                role = discord.utils.get(guild.roles, name=formatted_role_name)
+                if role:
+                    # Use the utility function to delete the role from the guild
+                    await self.role_manager.delete_role_from_guild(guild, role)
+                    logger.info(f"Role '{formatted_role_name}' has been removed from the guild.")
+                else:
+                    logger.debug(f"No role found for '{formatted_role_name}' to remove.")
+
+
+            elif 0 <= days_until_holiday <= 7:
+                logger.info(f"Holiday '{holiday_name}' is within 7 days.")
+                # Code to handle roles for holidays within 7 days
+                if not force and days_until_holiday > 0:
+                    logger.debug(f"Skipping role application for '{holiday_name}' as it's not today and force is not enabled.")
+                    continue  
+
+                try:
+                    role = await self.role_manager.create_or_update_role(guild, holiday_name, details['color'], details['date'])
+                    if role:
+                        logger.debug(f"Role for '{holiday_name}' retrieved or created.")
+                    else:
+                        logger.error(f"Failed to retrieve or create role for '{holiday_name}'.")
+                        continue
+                except Exception as e:
+                    logger.error(f"Error during role retrieval or creation for '{holiday_name}': {e}")
+                    continue
+
+                try:
+                    await self.role_manager.assign_role_to_all_members(guild, role)
+                    logger.info(f"Applied holiday role for '{holiday_name}' to opted-in members.")
+                except Exception as e:
+                    logger.error(f"Failed to assign holiday role for '{holiday_name}' to members: {e}")
 
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
     @seasonal.command(name="forceholiday")
-    async def force_holiday(
-        self, ctx: commands.Context, *holiday_name_parts: str
-    ) -> None:
-        """Force a specific holiday role, removing and deleting all other holiday roles."""
+    async def force_holiday(self, ctx: commands.Context, *holiday_name_parts: str) -> None:
         holiday_name = " ".join(holiday_name_parts).lower()
-        logger.info(
-            f"Attempting to force holiday role for '{holiday_name}' in guild {ctx.guild.name}"
-        )
+        guild = ctx.guild
+        holidays = await self.config.guild(guild).holidays()
+        dry_run_mode = await self.config.guild(guild).dry_run_mode()
 
-        guild: discord.Guild = ctx.guild
-        holidays: Dict[str, Any] = await self.config.guild(guild).holidays()
-        dry_run_mode: bool = await self.config.guild(guild).dry_run_mode()
+        logger.debug(f"Processing forceholiday for '{holiday_name}' with dry run mode set to {dry_run_mode}.")
 
-        matched_holiday_name = next(
-            (h for h in holidays if h.lower() == holiday_name), None
-        )
-        if matched_holiday_name is None:
-            logger.warning(f"Holiday '{holiday_name}' not found in guild {guild.name}")
-            await ctx.send(f"Holiday '{holiday_name}' does not exist!")
+        exists, message = await self.holiday_service.validate_holiday_exists(holidays, holiday_name)
+        if not exists:
+            logger.error(f"Failed to find holiday: {message}")
+            await ctx.send(message or "An error occurred.")
             return
 
-        holiday_details = holidays[matched_holiday_name]
-
-        # Remove and delete all other holiday roles first
-        for holiday, details in holidays.items():
-            if holiday.lower() != holiday_name:
-                role_to_delete = discord.utils.get(guild.roles, name=holiday)
-                if role_to_delete:
-                    if dry_run_mode:
-                        message = f"[Dry Run] Would have deleted holiday role '{holiday}' in guild {guild.name}"
-                        await ctx.send(message)
-                        logger.info(message)
-                    else:
-                        await self.delete_role(guild, role_to_delete)
-
-        # Apply the new holiday role
-        if dry_run_mode:
-            message = f"[Dry Run] Would have applied holiday role '{matched_holiday_name}' in guild {guild.name}"
-            logger.info(message)
+        success, message = await self.holiday_service.remove_all_except_current_holiday_role(guild, holiday_name)
+        if message:
+            logger.debug(message)
             await ctx.send(message)
-        else:
-            role = await self.add_holiday_role(
-                ctx,
-                matched_holiday_name,
-                holiday_details["date"],
-                holiday_details["color"],
-                holiday_details["image"],
-            )
-            if role:
-                await self.apply_role_to_all(guild, role)
-                logger.info(
-                    f"Successfully applied holiday role '{matched_holiday_name}' in guild {guild.name}"
-                )
-                await ctx.send(
-                    f"Forced holiday role '{matched_holiday_name}' applied to all members."
-                )
-            else:
-                logger.error(
-                    f"Failed to create or find role for holiday '{matched_holiday_name}' in guild {guild.name}"
-                )
-                await ctx.send("Failed to apply the holiday role.")
+        if not success:
+            logger.error("Failed to clear other holidays.")
+            return
 
-    async def delete_role(self, guild: discord.Guild, role: discord.Role) -> None:
-        """Deletes a role from a guild."""
-        try:
-            await role.delete()
-            logger.debug(f"Deleted role {role.name} in guild {guild.name}")
-        except Exception as e:
-            logger.error(f"Error deleting role {role.name} in guild {guild.name}: {e}")
+        success, message = await self.holiday_service.apply_holiday_role(guild, holiday_name, dry_run_mode)
+        if message:
+            logger.debug(message)
+            await ctx.send(message)
+        if not success:
+            logger.error("Failed to apply holiday role.")
+
 
     @check_holidays.before_loop
     async def before_check_holidays(self):
         await self.bot.wait_until_ready()
         self.guild = self.bot.get_guild(GUILD_ID)
 
-    async def update_role(
-        self, guild: discord.Guild, holiday_details: Dict[str, Any]
-    ) -> None:
-        """Update the role's appearance based on the holiday details."""
-        logger.debug(
-            f"Updating role for {guild.name} with holiday {holiday_details['name']}"
-        )
-
-        try:
-            dry_run_mode = await self.config.guild(guild).dry_run_mode()
-
-            if dry_run_mode:
-                role_id = await self.config.guild(guild).seasonal_role()
-                role = discord.utils.get(guild.roles, id=role_id)
-                if role:
-                    try:
-                        await role.edit(
-                            name=holiday_details["name"],
-                            color=discord.Color(holiday_details["color"]),
-                        )
-                        # Add logic here to change the role's image if Discord supports it in the future.
-                    except discord.Forbidden:
-                        logger.error(
-                            f"Permission error when trying to edit role in {guild.name}"
-                        )
-            else:
-                logger.info(
-                    f"Would have updated role in {guild.name} to {holiday_details['name']}"
-                )
-        except Exception as e:
-            logger.error(f"Error updating role for guild {guild.name}: {e}")
-
-    async def apply_role_to_all(self, guild: discord.Guild, role: discord.Role) -> None:
-        dry_run_mode = await self.config.guild(guild).dry_run_mode()
-        if dry_run_mode:
-            logger.info(
-                f"Would have applied role to {len(guild.members)} members in {guild.name}"
-            )
-        else:
-            opt_out_users = await self.config.guild(guild).opt_out_users()
-            for member in guild.members:
-                if member.id not in opt_out_users:
-                    try:
-                        await member.add_roles(role)
-                        logger.debug(
-                            f"Added role {role.name} to {member.name} in {guild.name}"
-                        )
-                    except discord.Forbidden:
-                        logger.error(
-                            f"Permission error when trying to add role to member {member.name} in {guild.name}"
-                        )
-
-    async def remove_role_from_all(
-        self, guild: discord.Guild, role: discord.Role
-    ) -> None:
-        dry_run_mode = await self.config.guild(guild).dry_run_mode()
-        if dry_run_mode:
-            for member in guild.members:
-                try:
-                    await member.remove_roles(role)
-                    logger.debug(
-                        f"Removed role {role.name} from {member.name} in {guild.name}"
-                    )
-                except discord.Forbidden:
-                    logger.error(
-                        f"Permission error when trying to remove role from member {member.name} in {guild.name}"
-                    )
-        else:
-            logger.info(
-                f"Would have removed role from {len(guild.members)} members in {guild.name}"
-            )
-
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
     @seasonal.command(name="banner")
-    async def change_server_banner_command(self, ctx, url: str):
-        """Command to change the server banner."""
+    async def change_server_banner_command(self, ctx, url: str = None):
+        """Command to change the server banner from a URL or an uploaded image."""
         if not ctx.guild:
             await ctx.send("This command can only be used in a server.")
             return
@@ -744,20 +499,29 @@ class SeasonalRoles(commands.Cog):
             await ctx.send("This server needs to be at least level 2 boosted to change the banner.")
             return
 
+        # Determine the source of the image
+        if not url and len(ctx.message.attachments) == 0:
+            await ctx.send("Please provide a URL or upload an image.")
+            return
+        elif len(ctx.message.attachments) > 0:
+            if url:
+                await ctx.send("Please provide either a URL or an uploaded image, not both.")
+                return
+            url = ctx.message.attachments[0].url
+
         result = await self.change_server_banner(ctx.guild, url)
         await ctx.send(result)
 
     async def change_server_banner(self, guild, url):
-        """Helper method to change the server banner."""
+        """Helper method to change the server banner using the image_utils handlers."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        image_bytes = await response.read()
-                        await guild.edit(banner=image_bytes)
-                        return "Banner changed successfully!"
-                    else:
-                        return "Failed to download the image from the provided URL."
+            # Use the factory to get the appropriate image handler for the URL
+            image_handler = get_image_handler(url)
+            image_bytes = await image_handler.fetch_image_data()
+
+            # Update the guild's banner
+            await guild.edit(banner=image_bytes)
+            return "Banner changed successfully!"
         except Exception as e:
             return f"An error occurred: {e}"
 

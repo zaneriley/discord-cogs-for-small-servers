@@ -10,7 +10,7 @@
         "zr"
     ],
     "required_cogs": {},
-    "requirements": ["dotenv"],
+    "requirements": ["dotenv", "aiofiles", "aiohttp"],
     "tags": [
         "roles",
         "holidays",
