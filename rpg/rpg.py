@@ -7,7 +7,7 @@ load_dotenv()
 import discord
 from discord.ext import commands
 from discord.errors import HTTPException, NotFound, Forbidden
-from redbot.core import Config, app_commands
+from redbot.core import Config, app_commands, commands
 from redbot.core.bot import Red
 
 

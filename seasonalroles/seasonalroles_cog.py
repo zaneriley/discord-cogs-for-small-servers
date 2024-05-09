@@ -397,6 +397,9 @@ class SeasonalRoles(commands.Cog):
 
         try:
             holidays = await self.config.guild(guild).holidays()
+            if not holidays:
+                logger.warning("No holidays configured for this guild.")
+                return
             logger.debug(f"Retrieved holidays: {holidays}")
         except Exception as e:
             logger.error(f"Failed to retrieve holidays from config: {e}")
@@ -407,18 +410,23 @@ class SeasonalRoles(commands.Cog):
 
         # Sort holidays by date to manage overlapping or back-to-back holidays
         sorted_holidays = sorted(holidays.items(), key=lambda x: datetime.strptime(f"{current_date.year}-{x[1]['date']}", "%Y-%m-%d").date())
-
+        logger.debug(f"Sorted holidays: {sorted_holidays}")
         banner_config = await self.config.guild(guild).banner_management()
+        all_roles = guild.roles
         for i, (holiday_name, details) in enumerate(sorted_holidays):
             holiday_date_str = details['date']
             holiday_date = datetime.strptime(f"{current_date.year}-{holiday_date_str}", "%Y-%m-%d").date()
             days_until_holiday = (holiday_date - current_date).days
             logger.debug(f"Holiday '{holiday_name}' is {days_until_holiday} days away.")
 
+            # Notify about upcoming holidays
+            # if days_until_holiday == 7:
+            #     await guild.get_channel(947277448301670461).send("One week until Kid's Day, enjoy your koi streamers")  # Send a notification message
+
             # Save the original banner if within 7 days and not already saved
             if days_until_holiday <= 7 and banner_config['original_banner_path'] is None:
-                # TODO: CHANGE TO PROPER PATH, WILL BREAK ON OTHERS MACHINES
-                save_path = f"/homelab/seasonalroles/assets/guild-banner-non-holiday-{guild.id}.png"
+                logger.debug("Attempting to save the original banner...")
+                save_path = os.path.join(os.path.dirname(__file__), f"assets/guild-banner-non-holiday-{guild.id}.png")
                 saved_path = await fetch_and_save_guild_banner(guild, save_path)
                 if saved_path:
                     await self.config.guild(guild).banner_management.set_raw('original_banner_path', value=saved_path)
@@ -426,7 +434,11 @@ class SeasonalRoles(commands.Cog):
 
             # Role and banner management
             if days_until_holiday < 0 or days_until_holiday > 7:
-                role = discord.utils.get(guild.roles, name=holiday_name)
+                logger.debug(f"Handling past or far future holiday: {holiday_name}")
+                #TODO: Dry this out
+                role_name = f"{holiday_name} {details['date']}"
+                role = discord.utils.get(all_roles, name=role_name)
+                logger.debug(f"role: {role}")
                 if role:
                     await self.role_manager.delete_role_from_guild(guild, role)
                     logger.info(f"Role '{holiday_name}' has been removed from the guild.")
@@ -438,6 +450,7 @@ class SeasonalRoles(commands.Cog):
                         logger.info("Restored the original banner.")
 
             elif 0 <= days_until_holiday <= 7:
+                logger.debug(f"Handling upcoming or current holiday: {holiday_name}")
                 if not force and days_until_holiday > 0:
                     logger.debug(f"Skipping role application for '{holiday_name}' as it's not today and force is not enabled.")
                     continue
@@ -448,10 +461,11 @@ class SeasonalRoles(commands.Cog):
                     logger.info(f"Applied holiday role for '{holiday_name}' to opted-in members.")
 
                 # Update the guild's banner if a holiday-specific banner is specified
-                if 'banner' in details:
+                if 'banner' in details and 0 <= days_until_holiday <= 7:
                     holiday_banner_path = details['banner']
                     await self.change_server_banner(guild, holiday_banner_path)
-                    logger.info(f"Updated guild banner for '{holiday_name}'.")
+                    await self.config.guild(guild).banner_management.set_raw('is_holiday_banner_active', value=True)
+                    logger.info(f"Updated guild banner for '{holiday_name}' and set is_holiday_banner_active to True.")
 
 
     @commands.guild_only()
@@ -465,9 +479,7 @@ class SeasonalRoles(commands.Cog):
 
         logger.debug(f"Processing forceholiday for '{holiday_name}' with dry run mode set to {dry_run_mode}.")
 
-        # TODO: Convert to helper functions like the role management code.
-        # Retrieve and save the current banner if not already saved
-        save_path = f"/homelab/seasonalroles/assets/guild-banner-non-holiday-{guild.id}.png"
+        save_path = os.path.join(os.path.dirname(__file__), f"assets/guild-banner-non-holiday-{guild.id}.png")
         try:
             saved_path = await fetch_and_save_guild_banner(guild, save_path)
             if saved_path:
@@ -508,7 +520,6 @@ class SeasonalRoles(commands.Cog):
             await ctx.send(message or "An error occurred.")
             return
             
-
         success, message = await self.holiday_service.remove_all_except_current_holiday_role(guild, holiday_name)
         if message:
             logger.debug(message)

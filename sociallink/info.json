@@ -8,7 +8,7 @@
     "hidden": false,
     "disabled": false,
     "required_cogs": {},
-    "requirements": [],
+    "requirements": ["openai"],
     "tags": ["social", "link", "mutual", "interaction", "score"],
     "type": "COG"
 }

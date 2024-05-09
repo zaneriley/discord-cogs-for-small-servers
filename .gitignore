@@ -28,4 +28,8 @@ ENV/
 env.bak/
 venv.bak/
 
-output.txt
+output.
+
+# Cog related files
+**/guild-banner-non-holiday-*.*
+**/guild-banner-holiday-*.*

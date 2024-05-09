@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from redbot.core.bot import Red
+from redbot.core import commands
 
 from .rpg import RPG, Onboarding, Inventory
 

@@ -1,11 +1,13 @@
 from datetime import datetime
 
 from redbot.core import Config, commands
-
+import discord
+from discord.ext import tasks
 
 import os
 import logging
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
@@ -34,6 +36,12 @@ class SocialLink(commands.Cog):
 
     !sociallink journal
         Shows a list of events that increased links between users
+
+    !sociallink admin reset <user_id> <score>
+        Resets the social link scores for all users
+    
+    !sociallink admin simulate <event_type> <user_id1> <user_id2>
+        Simulates a social link event between two users
 
     Current list of events:
     - Users @mention each other
@@ -108,38 +116,67 @@ class SocialLink(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send("Invalid social link command passed.")
 
+    @sociallink.group()
+    async def admin(self, ctx):
+        """Admin-only commands for managing social links."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send("Invalid admin command.")
+
+    @admin.command(name="simulate")
+    async def simulate_event(self, ctx, event_type: str, user1: discord.Member, user2: discord.Member):
+        """Simulates a social link event between two users."""
+        valid_events = ['voice_channel', 'message_mention', 'reaction']
+        if event_type not in valid_events:
+            await ctx.send(f"Invalid event type: {event_type}. Please use one of the following: {', '.join(valid_events)}")
+            return
+
+        logger.info(f"Simulating event between {user1.display_name} and {user2.display_name} for {event_type}.")
+
+        # Detailed user validation
+        if not user1:
+            await ctx.send("The first user mention is invalid. Please check and try again.")
+            logger.error(f"Invalid user mention for user1: {ctx.message.content}")
+            return
+        if not user2:
+            await ctx.send("The second user mention is invalid. Please check and try again.")
+            logger.error(f"Invalid user mention for user2: {ctx.message.content}")
+            return
+        
+        # Retrieve the guild configuration for events
+        events_config = await self.config.guild(ctx.guild).all()
+
+        # Check if the event type exists in the configuration
+        if event_type not in events_config:
+            await ctx.send(f"No configuration found for event type: {event_type}")
+            return
+
+        # Access the points for the event type
+        event_points = events_config[event_type]['points']
+
+        score_increment = event_points
+        if score_increment == 0:
+            await ctx.send(f"No points configuration found for event type: {event_type}. Please check the configuration.")
+            logger.error(f"No points configuration found for event type: {event_type}")
+            return
+        
+        # Simulate the event
+        try:
+            await self.handle_link(ctx, user1.id, user2.id, score_increment, event_type, "Simulated event")
+            await ctx.send(f"Simulated {event_type} event between {user1.display_name} and {user2.display_name}. Each received {score_increment} points.")
+            logger.info(f"Simulated event successful between {user1.display_name} and {user2.display_name} for {event_type}.")
+        except Exception as e:
+            await ctx.send("Failed to simulate the event due to an internal error.")
+            logger.error(f"Error simulating event between {user1.display_name} and {user2.display_name}: {str(e)}", exc_info=True)
+
     @sociallink.command(aliases=["friends", "confidents"])
     async def confidants(self, ctx):
         """Shows the user's confidants and the score for each."""
-        user_id = str(ctx.author.id)
+        user_id = ctx.author.id  # Get the user ID directly as an integer
 
-        mock_data = {
-            "289198795625857026": {
-                "scores": {
-                    "393266291261308938": 0,
-                    "863149927340572723": 0,
-                },
-                "aggregate_score": 0,
-            },
-            "393266291261308938": {
-                "scores": {
-                    "289198795625857026": 0,
-                    "863149927340572723": 0,
-                },
-                "aggregate_score": 0,
-            },
-            "863149927340572723": {
-                "scores": {
-                    "289198795625857026": 0,
-                    "393266291261308938": 0,
-                },
-                "aggregate_score": 0,
-            },
-        }
+        # Fetch real user data
+        user_data = await self.config.user(ctx.author).all()  # Use the 'all' method to get all data associated with the user
 
-        user_data = mock_data.get(user_id, {})
-
-        if not user_data or "scores" not in user_data or not user_data["scores"]:
+        if not user_data.get("scores"):  # Simplified check for scores
             await ctx.send("You have no confidants yet!")
             return
 
@@ -147,7 +184,7 @@ class SocialLink(commands.Cog):
         for confidant_id, score in user_data["scores"].items():
             level = await self._calculate_level(score)
             stars = await self._generate_star_rating(level)
-            message += f"<@{confidant_id}>: {stars} `{score} pts` \n"
+            message += f"<@{confidant_id}>: {stars} `{score} pts` \n"  # Use confidant_id directly
         message += f"\nAggregate Score: {user_data.get('aggregate_score', 0)} pts"
 
         await ctx.send(message)
@@ -211,33 +248,51 @@ class SocialLink(commands.Cog):
         await ctx.send(message)
 
     # Event Handlers
-    async def handle_link(self, ctx, score: int):
-        """
-        Sets the social link score between the author and another user.
+    async def handle_link(self, ctx, user_id1: int, user_id2: int, score_increment: int, event_type: str, details: str = ""):
+        """Handles updating social links and scores, potentially triggering level increases and journal entries.
 
-        Method handle_link(ctx, initiator_id, confidant_id, score_increment, event_type, details):
-        1. Fetch the current social link score between the initiator and the confidant.
-        
-        2. Calculate the new score by adding the score_increment to the current score.
-        
-        3. Update the social link score for both the initiator and the confidant in the database or configuration.
-        
-        4. Check if the new score results in a level increase for the social link.
-            - If yes, perform actions associated with a level increase:
-                a. Create a special journal entry or log to mark the level increase.
-                b. Send a notification to both users about the level increase, including any new perks or messages associated with the new level.
-        
-        5. Regardless of a level increase, create a journal entry for the interaction.
-            - The journal entry should include:
-                a. The type of event (event_type).
-                b. The timestamp of the interaction.
-                c. A description of the interaction (details).
-                d. The IDs of both the initiator and the confidant.
-        
-        6. If applicable, update any aggregate scores or metrics that are affected by the new social link score.
-        
         """
-        # ... (update links, recalculate aggregate scores)
+        try:
+            all_users = await self.config.all_users()
+
+            # 1. Fetch Existing Scores:
+            user1_data = all_users.get(str(user_id1), {"scores": {}, "aggregate_score": 0})
+            user2_data = all_users.get(str(user_id2), {"scores": {}, "aggregate_score": 0})
+
+            # 2. Update Scores (bidirectional):
+            user1_data["scores"][str(user_id2)] = user1_data["scores"].get(str(user_id2), 0) + score_increment
+            user2_data["scores"][str(user_id1)] = user2_data["scores"].get(str(user_id1), 0) + score_increment
+
+            # 3. Update Aggregate Scores:
+            await self.update_aggregate_score(user_id1)
+            await self.update_aggregate_score(user_id2)
+
+            # 4. Calculate Levels:
+            old_user1_level = await self._calculate_level(user1_data["scores"].get(str(user_id2), 0) - score_increment)
+            old_user2_level = await self._calculate_level(user2_data["scores"].get(str(user_id1), 0) - score_increment)
+            new_user1_level = await self._calculate_level(user1_data["scores"][str(user_id2)])
+            new_user2_level = await self._calculate_level(user2_data["scores"][str(user_id1)])
+
+            # 5. Check for Level Up & Announce if needed (only once per pair):
+            if new_user1_level > old_user1_level or new_user2_level > old_user2_level:
+                await self.announce_rank_increase(user_id1, user_id2, max(new_user1_level, new_user2_level))
+
+            # 6. Create Journal Entries:
+            timestamp = datetime.now()
+            await self._create_journal_entry(event_type, user_id1, user_id2, timestamp, details or "No details provided.")
+
+            # 7. Store Updated Data:
+            await self.config.user_from_id(user_id1).set(user1_data)
+            await self.config.user_from_id(user_id2).set(user2_data)
+
+        except KeyError as e:
+            logger.error(f"Key error accessing user data: {e}", exc_info=True)
+        except TypeError as e:
+            logger.error(f"Type error in data manipulation: {e}", exc_info=True)
+        except Exception as e:
+            logger.exception(f"An unexpected error occurred while handling link: {e}")
+        else:
+            logger.info(f"Successfully handled link between {user_id1} and {user_id2} for {event_type} with increment {score_increment}")
 
     # Helpers
     async def update_links(self, user1_id, user2_id, score):
@@ -325,20 +380,17 @@ Your bond with {confidant_name} has grown stronger!
             dict: The created journal entry.
         """
 
-
-        # 2. Construct Entry:
         entry = {
-            "timestamp": timestamp,
-            "initiator_id": initiator_id,
-            "confidant_id": confidant_id,
-            "description": self.generate_description(event_type, details),
+            "event_type": event_type,
+            "initiator_id": str(initiator_id),
+            "confidant_id": str(confidant_id),
+            "timestamp": timestamp.isoformat(),
+            "description": details,
         }
 
-        # 3. Store Entry:
-        await self.config.user_from_id(initiator_id).journal().append(entry)
-        await self.config.user_from_id(confidant_id).journal().append(entry)  
-
-        return entry
+        user_journal = await self.config.user_from_id(initiator_id).journal()
+        user_journal.append(entry)
+        await self.config.user_from_id(initiator_id).journal.set(user_journal)
     
 
     # Listeners for sLink activity
