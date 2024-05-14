@@ -4,6 +4,7 @@ from dateutil.relativedelta import relativedelta
 
 
 class DateUtil:
+
     """
     Utility class for working with dates and timedeltas.
     These largely focus on ensuring consistent dates by removing or preventing datetime objects from being created.

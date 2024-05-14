@@ -1,13 +1,13 @@
 
 import logging
-from discord.ext.commands import Context
-from discord import TextChannel, ForumTag, NotFound, HTTPException
-from discord.ui import Modal, Item
-from typing import List, Optional, Union, Callable
+import os
+from typing import Callable, List, Optional, Union
+
 import aiofiles
 import aiohttp
-import os
-
+from discord import ForumTag, HTTPException, NotFound, TextChannel
+from discord.ext.commands import Context
+from discord.ui import Item, Modal
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,6 @@ async def send_discord_message(
     """
     Sends a scheduled message to a specified channel.
     If a role_id is provided, it mentions the role in the message.
-
     :param ctx: Command context
     :param channel_id: The ID of the channel to send the message to
     :param message_content: The content of the message
@@ -128,7 +127,6 @@ async def send_discord_message(
     # Sending Message
     try:
         await channel.send(message_content)
-        return "Message sent successfully."
     except HTTPException:
         await ctx.send(SEND_MESSAGE_ERROR)
         logger.error(f"HTTPException while sending message to channel {channel.id}.")
@@ -137,6 +135,8 @@ async def send_discord_message(
         logger.error(f"Unexpected error sending message to channel {channel.id}: {e}")
         await ctx.send(SEND_MESSAGE_ERROR)
         return SEND_MESSAGE_ERROR
+    else:
+        return "Message sent successfully."
 
 
 MAX_ITEMS_LIMIT = 25  # Define a constant for the maximum number of items
