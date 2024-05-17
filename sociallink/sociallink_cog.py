@@ -6,10 +6,13 @@ import discord
 from dotenv import load_dotenv
 from redbot.core import Config, commands
 
+from utilities.discord_utils import PaginatorView
+
 from .commands.confidants import ConfidantsManager
 from .commands.journal import JournalManager
 from .commands.rank import RankManager
-from .leveling import LevelManager
+from .services.events import EventManager
+from .services.leveling import LevelManager
 
 load_dotenv()
 
@@ -24,7 +27,6 @@ GUILD_ID = int(os.getenv("GUILD_ID", "947277446678470696"))
 # TODO:
 # - Not accruing points when simulating events. Just storing the last points value.
 # - Aggregate score not working
-# - Journal does not populate
 # - Refactor once it's working
 
 
@@ -60,12 +62,13 @@ class SocialLink(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
-        self.journal_manager = JournalManager(self.config)
-        self.confidants_manager = ConfidantsManager(self.config)
         self.rank_manager = RankManager()
-        self.level_manager = LevelManager(self.config, self.journal_manager, self.confidants_manager)
+        self.journal_manager = JournalManager(self.config)
+        self.level_manager = LevelManager(self.config, self.journal_manager)
+        self.confidants_manager = ConfidantsManager(self.bot, self.config)
 
         default_global = {
+            "guild_id": GUILD_ID,
             # Social Link Settings
             # Controls how difficult it is to get a social link
             "base_s_link": 10,
@@ -210,6 +213,17 @@ class SocialLink(commands.Cog):
 
         await ctx.send(settings_message)
 
+    @admin.command()
+    @commands.has_permissions(manage_emojis=True)
+    async def update_avatars(self, ctx):
+        """
+        Command to trigger avatar updating and save the emoji IDs in the configuration.
+        """
+        emoji_mapping = await self.confidants_manager.update_avatar_emojis()
+        for user_id, emoji_id in emoji_mapping.items():
+            await self.config.user_from_id(user_id).set_raw("emoji_id", value=emoji_id)
+        await ctx.send("Avatars updated and emoji IDs saved successfully.")
+
     @admin.command(name="journal_entry")
     async def test_journal_entry(self, ctx, user: discord.Member, *, event_details: str):
         """Test command for creating a journal entry."""
@@ -242,8 +256,13 @@ class SocialLink(commands.Cog):
         for confidant_id, score in user_data["scores"].items():
             level = await self.level_manager.calculate_level(score)
             stars = await self.level_manager.generate_star_rating(level)
-            message += f"<@{confidant_id}>: {stars} `{score} pts` \n"  # Use confidant_id directly
+            emoji = await self.confidants_manager.get_user_emoji(discord.Object(id=confidant_id))
+
+            emoji_str = f"<{'a' if emoji.animated else ''}:{emoji.name}:{emoji.id}>" if emoji else ""
+
+            message += f"### {emoji_str} <@{confidant_id}>: {stars} \n"
         message += f"\nYour rank: {user_data.get('aggregate_score', 0)} pts (not implemented yet)"
+
 
         if ctx.interaction:
             await ctx.interaction.response.send_message(message, ephemeral=True)
@@ -258,60 +277,49 @@ class SocialLink(commands.Cog):
         await ctx.send(rank_message)
 
     @sociallink.command()
-    async def journal(self, ctx):
+    async def journal(self, ctx, entries_per_page: int = 10):
         """Shows a list of events that increased links between users."""
         try:
-            message = await self.journal_manager.display_journal(ctx.author)
-
-            await ctx.send(message)
-
+            pages = await self.journal_manager.display_journal(
+                ctx.author, entries_per_page
+            )
+            paginator = PaginatorView(pages)
+            await ctx.send(pages[0], view=paginator)
         except Exception as e:
-            logger.exception(f"An error occurred while processing the journal command for user {ctx.author.id}: {e}")
-            await ctx.send("An error occurred while retrieving your journal. Please try again later.")
+            logger.exception(
+                "Error processing journal for user %s", {ctx.author.id}
+            )
+            await ctx.send(
+                "An error occurred while retrieving your journal. Please try again later."
+            )
+    @commands.Cog.listener()
+    async def on_member_update(self, before, after):
+        """
+        Event listener to update emojis when a member's avatar changes.
+        """
+        if before.avatar != after.avatar:
+            guild = after.guild
+            try:
+                avatar_data = await self.confidants_manager.fetch_user_avatar(after)
+                if avatar_data:
+                    emoji_id = await self.confidants_manager.upload_avatar_as_emoji(guild, after, avatar_data)
+                    if emoji_id:
+                        await self.config.user(after).set_raw("emoji_id", value=emoji_id)
+                        logger.info(f"Updated emoji for {after.display_name}")
+            except Exception:
+                logger.exception("Failed to update avatar for %s", {after.display_name})
+
+    @commands.Cog.listener()
+    async def on_level_up(self, event_data):
+        """
+        Handles the 'level_up' event dispatched by the LevelManager
+        """
+        await self.event_manager.on_level_up(event_data)
 
     # Listeners for sLink activity
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
-        try:
-            if member.bot:
-                logger.debug(f"Ignoring bot user: {member.display_name} ({member.id})")
-                return
-
-            now = datetime.now(tz=UTC)
-            user_id = str(member.id)
-            today = now.date()  # Not using the DateUtil here because it could cause issues with datetime.now(tz=UTC)
-
-            if user_id not in self.voice_sessions or self.voice_sessions[user_id]["last_interaction_date"] < today:
-                logger.info(f"Initializing or resetting voice session for user: {member.display_name} ({member.id})")
-                self.voice_sessions[user_id] = {
-                    "channel": None,
-                    "start": None,
-                    "interactions": {},
-                    "last_interaction_date": today,
-                }
-
-            if before.channel is None and after.channel is not None:
-                logger.info(f"User {member.display_name} ({member.id}) joined voice channel: {after.channel.id}")
-                self.voice_sessions[user_id]["channel"] = after.channel.id
-                self.voice_sessions[user_id]["start"] = now
-
-            elif before.channel is not None and (after.channel is None or before.channel.id != after.channel.id):
-                logger.info(
-                    f"User {member.display_name} ({member.id}) left or switched from voice channel: {before.channel.id}"
-                )
-                await self._update_interaction_time(user_id, before.channel.id, now)
-
-                if after.channel is None:
-                    self.voice_sessions[user_id]["channel"] = None
-                    self.voice_sessions[user_id]["start"] = None
-                else:
-                    self.voice_sessions[user_id]["channel"] = after.channel.id
-                    self.voice_sessions[user_id]["start"] = now
-
-        except Exception as e:
-            logger.error(
-                f"Error handling voice state update for {member.display_name} ({member.id}): {e}", exc_info=True
-            )
+        await self.event_manager.on_voice_state_update(member, before, after)
 
     async def _update_interaction_time(self, user_id, channel_id, end_time):
         session = self.voice_sessions[user_id]

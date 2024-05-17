@@ -3,4 +3,5 @@ beautifulsoup4
 requests
 holidays
 aiofiles
-
+asyncio
+pillow

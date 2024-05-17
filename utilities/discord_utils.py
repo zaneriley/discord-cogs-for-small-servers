@@ -1,13 +1,12 @@
-
 import logging
 import os
 from typing import Callable, List, Optional, Union
 
-import aiofiles
-import aiohttp
+import discord
 from discord import ForumTag, HTTPException, NotFound, TextChannel
+from discord.ext import commands
 from discord.ext.commands import Context
-from discord.ui import Item, Modal
+from discord.ui import Button, Item, Modal, View
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +104,6 @@ async def send_discord_message(
     :param role_id: The ID of the role to mention, optional
     :return: Status message
     """
-
     channel = ctx.guild.get_channel(channel_id)
     if not channel:
         await ctx.send("Invalid channel ID or channel not found.")
@@ -129,10 +127,10 @@ async def send_discord_message(
         await channel.send(message_content)
     except HTTPException:
         await ctx.send(SEND_MESSAGE_ERROR)
-        logger.error(f"HTTPException while sending message to channel {channel.id}.")
+        logger.exception("HTTPException while sending message to channel %s", {channel.id})
         return SEND_MESSAGE_ERROR
     except Exception as e:
-        logger.error(f"Unexpected error sending message to channel {channel.id}: {e}")
+        logger.exception("Unexpected error sending message to channel %s", {channel.id})
         await ctx.send(SEND_MESSAGE_ERROR)
         return SEND_MESSAGE_ERROR
     else:
@@ -254,7 +252,7 @@ async def fetch_and_save_guild_banner(guild, save_path):
         logger.error(f"General error fetching guild banner: {e}")
         return None
 
-async def restore_guild_banner(guild, file_path, delete_after_restore=False):
+async def restore_guild_banner(guild, file_path, *, delete_after_restore=False):
     """Restores the guild's banner from a saved file."""
     try:
         async with aiofiles.open(file_path, 'rb') as file:
@@ -265,7 +263,76 @@ async def restore_guild_banner(guild, file_path, delete_after_restore=False):
             os.remove(file_path)
             logger.info(f"Banner file {file_path} deleted after restoration.")
     except FileNotFoundError:
-        logger.error("Banner file not found.")
+        logger.exception("Banner file not found.")
     except Exception as e:
-        logger.error(f"Failed to restore guild banner: {e}")
+        logger.exception("Failed to restore guild banner:")
         raise
+
+async def fetch_user_avatar(user):
+    """
+    Fetches the avatar for a user.
+    """
+    http_ok = 200
+    avatar_url = user.display_avatar.url
+    async with aiohttp.ClientSession() as session, session.get(avatar_url) as response:
+        if response.status == http_ok:
+            return await response.read()
+
+        logger.exception("Failed to download avatar from: %s", avatar_url)
+        return None
+
+class PaginatorView(View):
+    def __init__(self, pages, timeout=180):
+        super().__init__(timeout=timeout)
+        self.pages = pages
+        self.current_page = 0
+        self.back_button = discord.ui.Button(emoji="⬅️", style=discord.ButtonStyle.primary)
+        self.page_button = discord.ui.Button(label=f"{self.current_page + 1} of {len(self.pages)}", style=discord.ButtonStyle.secondary, disabled=True)
+        self.forward_button = discord.ui.Button(emoji="➡️", style=discord.ButtonStyle.primary)
+        self.back_button.callback = self.previous_button_callback
+        self.forward_button.callback = self.next_button_callback
+        self.add_item(self.back_button)
+        self.add_item(self.page_button)
+        self.add_item(self.forward_button)
+        self.update_buttons()
+        logger.info("Paginator initialized with %d pages", len(self.pages))
+
+    async def previous_button_callback(self, interaction: discord.Interaction):
+        if self.current_page > 0:
+            logger.debug("Previous button pressed on page %d", self.current_page + 1)
+            self.current_page -= 1
+            logger.debug("Moving to previous page %d", self.current_page + 1)
+            self.update_buttons()
+            await interaction.response.edit_message(content=self.pages[self.current_page], view=self)
+            logger.debug("Edit message call completed")  # Log after the call
+        else:
+            logger.debug("Already on the first page")
+
+    async def next_button_callback(self, interaction: discord.Interaction):
+        if self.current_page < len(self.pages) - 1:
+            logger.debug("Next button pressed on page %d", self.current_page + 1)
+            self.current_page += 1
+            logger.debug("Moving to next page %d", self.current_page + 1)
+            self.update_buttons()
+            await interaction.response.edit_message(content=self.pages[self.current_page], view=self)
+            logger.debug("Edit message call completed")  # Log after the call
+        else:
+            logger.debug("Already on the last page")
+
+    def update_buttons(self):
+        self.page_button.label = f"{self.current_page + 1} of {len(self.pages)}"
+        self.back_button.disabled = self.current_page == 0
+        self.forward_button.disabled = self.current_page == len(self.pages) - 1
+
+        logger.debug(
+            "Button states updated. Back: %s, Page: %s, Forward: %s",
+            "disabled" if self.back_button.disabled else "enabled",
+            self.page_button.label,
+            "disabled" if self.forward_button.disabled else "enabled",
+        )
+
+    async def on_timeout(self):
+        # remove buttons on timeout
+        message = await self.interaction.original_response()
+        await message.edit(view=None)
+
