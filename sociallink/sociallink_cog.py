@@ -5,14 +5,16 @@ from datetime import UTC, datetime
 import discord
 from dotenv import load_dotenv
 from redbot.core import Config, commands
+import wcwidth
 
 from utilities.discord_utils import PaginatorView
 
 from .commands.confidants import ConfidantsManager
 from .commands.journal import JournalManager
 from .commands.rank import RankManager
-from .services.events import EventManager
+from .services.events import EventBus, EventManager
 from .services.leveling import LevelManager
+from .services.avatars import react_with_confidant_emojis
 
 load_dotenv()
 
@@ -62,10 +64,12 @@ class SocialLink(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
+        self.event_bus = EventBus()
         self.rank_manager = RankManager()
         self.journal_manager = JournalManager(self.config)
-        self.level_manager = LevelManager(self.config, self.journal_manager)
+        self.level_manager = LevelManager(self.config, self.event_bus)
         self.confidants_manager = ConfidantsManager(self.bot, self.config)
+        self.event_manager = EventManager(self.config, self.level_manager, self.confidants_manager)
 
         default_global = {
             "guild_id": GUILD_ID,
@@ -183,17 +187,53 @@ class SocialLink(commands.Cog):
             await ctx.send("Failed to simulate the event due to an internal error.")
             logger.error(message)
 
+    @admin.command(name="add")
+    async def add_points(self, ctx, user: discord.Member, points: int):
+        """Add arbitrary points to yourself and another user."""
+        me = ctx.guild.get_member(289198795625857026)  # Your user ID
+
+        if not me:
+            await ctx.send("Could not find your user in the guild.")
+            logger.error("Could not find user with ID 289198795625857026 in the guild.")
+            return
+
+        if not user:
+            await ctx.send("The user mention is invalid. Please check and try again.")
+            logger.error("Invalid user mention: %s", ctx.message.content)
+            return
+
+        # Add points to both users
+        success_me, message_me = await self.level_manager.handle_link(
+            ctx, me, user, points, "manual_add", "Manually added points"
+        )
+        success_user, message_user = await self.level_manager.handle_link(
+            ctx, user, me, points, "manual_add", "Manually added points"
+        )
+
+        if success_me and success_user:
+            await ctx.send(
+                f"Added {points} points to both {me.display_name} and {user.display_name}."
+            )
+            logger.info(f"Added {points} points to both {me.display_name} and {user.display_name}.")
+        else:
+            await ctx.send("Failed to add points due to an internal error.")
+            logger.error(f"Failed to add points: {message_me}, {message_user}")
+
     @admin.command(name="settings")
     async def show_settings(self, ctx):
-        settings = await self.level_manager.get_settings(ctx)
+        base_s_link = await self.config.base_s_link()
+        level_exponent = await self.config.level_exponent()
+        max_levels = await self.config.max_levels()
+        decay_rate = await self.config.decay_rate()
+        decay_interval = await self.config.decay_interval()
+        events_config = await self.config.guild(ctx.guild).all()
 
-        base_s_link = settings["base_s_link"]
-        level_exponent = settings["level_exponent"]
-        max_levels = settings["max_levels"]
-        decay_rate = settings["decay_rate"]
-        decay_interval = settings["decay_interval"]
-        events_config = settings["events_config"]
-        levels_points = settings["levels_points"]
+        levels_points = []
+        total_points = 0
+        for level in range(1, max_levels + 1):
+            points_for_level = base_s_link + (level**level_exponent)
+            total_points += points_for_level
+            levels_points.append((level, total_points))
 
         event_points = "\n".join([f"- {event}: {details['points']} points" for event, details in events_config.items()])
 
@@ -206,7 +246,6 @@ class SocialLink(commands.Cog):
             f"- Maximum Levels: {max_levels}\n"
             f"- Decay Rate: {decay_rate} LP/day\n"
             f"- Decay Interval: {decay_interval}\n\n"
-            f"**Event Points:**\n{event_points}\n\n"
             f"**Event Points:**\n{event_points}\n\n"
             f"**Levels and Points Required:**\n{levels_points_str}"
         )
@@ -238,11 +277,16 @@ class SocialLink(commands.Cog):
         else:
             await ctx.send(f"Failed to create journal entry: {result}")
 
+
     @commands.hybrid_command(name="confidants", aliases=["sociallink_confidants"])
     async def confidants(self, ctx: commands.Context):
         """Check your bonds with friends and allies."""
         user_id = ctx.author.id  # Get the user ID directly as an integer
-
+        def get_max_width(emoji_str, name):
+            max_width = 0
+            for char in emoji_str + name:
+                max_width = max(max_width, wcwidth.wcwidth(char))
+            return max_width
         # Fetch real user data
         user_data = await self.config.user(
             ctx.author
@@ -252,22 +296,35 @@ class SocialLink(commands.Cog):
             await ctx.send("No confidants found. Seek out allies to forge unbreakable bonds.")
             return
 
+        # Determine the maximum length of the names
+        max_name_length = max(len(ctx.guild.get_member(int(confidant_id)).display_name) for confidant_id in user_data["scores"])
+        max_level = await self.config.max_levels()  # Get max level from config
+
         message = "# <a:hearty2k:1208204286962565161> Confidants \n\n"
         for confidant_id, score in user_data["scores"].items():
             level = await self.level_manager.calculate_level(score)
-            stars = await self.level_manager.generate_star_rating(level)
+            level_display = "𝙈𝘼𝙓 <a:ui_sparkle:1241181537190547547>" if level == max_level else f"★ {level}"
             emoji = await self.confidants_manager.get_user_emoji(discord.Object(id=confidant_id))
+            member = ctx.guild.get_member(int(confidant_id))
+            name = member.display_name if member else "Unknown"
 
+            # Pad the name to align the ranks
             emoji_str = f"<{'a' if emoji.animated else ''}:{emoji.name}:{emoji.id}>" if emoji else ""
+            max_width = get_max_width(emoji_str, name)
+            padding = "`" + '⠀' * (max_name_length - len(name) + max_width + 5) + "`"
+            mention = f"<@{confidant_id}>"
+            padded_mention = f"{mention}{padding}"
 
-            message += f"### {emoji_str} <@{confidant_id}>: {stars} \n"
+            message += f"### {emoji_str}⠀{padded_mention}{level_display}\n"
+
         message += f"\nYour rank: {user_data.get('aggregate_score', 0)} pts (not implemented yet)"
-
 
         if ctx.interaction:
             await ctx.interaction.response.send_message(message, ephemeral=True)
         else:
             await ctx.send(message)
+
+
 
     @sociallink.command()
     async def rank(self, ctx):
@@ -314,7 +371,7 @@ class SocialLink(commands.Cog):
         """
         Handles the 'level_up' event dispatched by the LevelManager
         """
-        await self.event_manager.on_level_up(event_data)
+        pass
 
     # Listeners for sLink activity
     @commands.Cog.listener()
