@@ -1,5 +1,5 @@
-from datetime import datetime, date
-from typing import List, Union
+from datetime import date, datetime
+
 from dateutil.relativedelta import relativedelta
 
 
@@ -12,16 +12,14 @@ class DateUtil:
     """
 
     @staticmethod
-    def normalize_date(input_date: Union[datetime, date]) -> date:
+    def normalize_date(input_date: datetime | date) -> date:
         """Ensures the input is a datetime.date object."""
         if isinstance(input_date, datetime):
             return input_date.date()
         elif isinstance(input_date, date):
             return input_date
         else:
-            raise TypeError(
-                "input_date must be a datetime.datetime or datetime.date instance"
-            )
+            raise TypeError("input_date must be a datetime.datetime or datetime.date instance")
 
     @staticmethod
     def get_presentable_date(input_date: date) -> str:
@@ -44,7 +42,7 @@ class DateUtil:
         return datetime.strptime(date_string, format_str).date()
 
     @staticmethod
-    def sort_dates(dates: List[date]) -> List[date]:
+    def sort_dates(dates: list[date]) -> list[date]:
         """Sorts and returns a list of date objects"""
         return sorted(dates)
 

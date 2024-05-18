@@ -8,6 +8,7 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+
 async def fetch_user_avatar(user):
     """
     Fetches the avatar for a user.
@@ -20,6 +21,7 @@ async def fetch_user_avatar(user):
 
         logger.exception("Failed to download avatar from: %s", avatar_url)
         return None
+
 
 async def upload_avatar_as_emoji(guild, user, avatar_data):
     """
@@ -52,7 +54,7 @@ async def upload_avatar_as_emoji(guild, user, avatar_data):
                 logger.exception("Failed to upload avatar for %s", {user.display_name})
                 return None
             if e.status == http_status_rate_limited:
-                retry_after = int(e.response.headers.get("Retry-After", backoff_delay * (2 ** attempt)))
+                retry_after = int(e.response.headers.get("Retry-After", backoff_delay * (2**attempt)))
                 logger.warning("Rate limited. Retrying in %s seconds", retry_after)
                 await asyncio.sleep(retry_after)
             else:
@@ -61,6 +63,7 @@ async def upload_avatar_as_emoji(guild, user, avatar_data):
         else:
             return emoji.id
     return None
+
 
 async def update_avatar_emojis(bot, config):
     """
@@ -87,6 +90,7 @@ async def update_avatar_emojis(bot, config):
             logger.exception("Failed to update avatar for %s", {member.display_name})
     return emoji_mapping
 
+
 async def get_user_emoji(bot, config, user):
     """
     Retrieves the stored emoji ID for a user.
@@ -101,6 +105,7 @@ async def get_user_emoji(bot, config, user):
         return guild.get_emoji(emoji_id)
     return None
 
+
 def react_with_confidant_emojis(func):
     async def wrapper(self, ctx, *args, **kwargs):
         message = await func(self, ctx, *args, **kwargs)
@@ -112,6 +117,7 @@ def react_with_confidant_emojis(func):
                     try:
                         await message.add_reaction(emoji)
                     except discord.HTTPException as e:
-                        logger.exception(f"Failed to add reaction for confidant {confidant_id}: {str(e)}")
+                        logger.exception(f"Failed to add reaction for confidant {confidant_id}: {e!s}")
         return message
+
     return wrapper

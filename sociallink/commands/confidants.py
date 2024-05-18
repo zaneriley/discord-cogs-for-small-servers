@@ -10,8 +10,9 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+
 class ConfidantsManager:
-    def __init__(self, bot,config):
+    def __init__(self, bot, config):
         self.bot = bot
         self.config = config
 
@@ -60,7 +61,7 @@ class ConfidantsManager:
                     logger.exception("Failed to upload avatar for %s", {user.display_name})
                     return None
                 if e.status == http_status_rate_limited:
-                    retry_after = int(e.response.headers.get("Retry-After", backoff_delay * (2 ** attempt)))
+                    retry_after = int(e.response.headers.get("Retry-After", backoff_delay * (2**attempt)))
                     logger.warning("Rate limited. Retrying in %s seconds", retry_after)
                     await asyncio.sleep(retry_after)
                 else:
@@ -108,7 +109,6 @@ class ConfidantsManager:
                 return None
             return guild.get_emoji(emoji_id)
         return None
-
 
     async def create_confidant_embed(
         self, username: str, journal_entry: str, rank: int, stars: str, avatar_url: str, level_up: bool = False

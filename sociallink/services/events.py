@@ -1,18 +1,27 @@
 import asyncio
-
-from datetime import datetime, UTC
 import logging
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
+
 class Events:
     ON_LEVEL_UP = "on_level_up"
+    ON_SOCIAL_LINK = "on_social_link"
+    ON_JOURNAL_ENTRY = "on_journal_entry"
+
 
 class EventBus:
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._events = {}  # noqa: SLF001
+        return cls._instance
+
     def __init__(self):
-        self._events = {
-            Events.ON_LEVEL_UP: []
-        }
+        self._events = {Events.ON_LEVEL_UP: []}
 
     def subscribe(self, event_name):
         def decorator(func):
@@ -20,25 +29,29 @@ class EventBus:
                 self._events[event_name] = []
             self._events[event_name].append(func)
             logger.debug("Subscriber %s subscribed to event %s", func, event_name)
+            logger.debug("Current events registered: %s", self._events)
             return func
+
         return decorator
 
     def fire(self, event_name, *args, **kwargs):
-        logger.debug("Possible events: %s", self._events.keys())
-        logger.debug("Event %s fired with args: %s, kwargs: %s", event_name, args, kwargs)
+        logger.debug("Current events registered: %s", self._events)
+        logger.debug("Firing event: %s with args: %s and kwargs: %s", event_name, args, kwargs)
         if event_name in self._events:
             for handler in self._events[event_name]:
                 try:
+                    logger.debug("Handling event %s with handler %s", event_name, handler)
                     if asyncio.iscoroutinefunction(handler):
                         asyncio.create_task(handler(*args, **kwargs))
                     else:
                         handler(*args, **kwargs)
-                    logger.debug("Event handler %s fired successfully", handler)
-                except Exception:
-                    logger.exception("Error in handler %s: %s", handler, event_name)
+                except Exception as e:
+                    logger.exception("Error in handler %s for event %s: %s", handler, event_name, e)
         else:
-            logger.warning("Event %s not found in event bus", event_name)
+            logger.warning("No handlers found for event: %s", event_name)
 
+
+event_bus = EventBus()
 
 
 class EventManager:
@@ -129,8 +142,7 @@ class EventManager:
             rank=level,
             stars=stars,
             avatar_url=user_2.display_avatar.url,
-            level_up=True
+            level_up=True,
         )
 
         await user_1.send(content=f"## Rank up!!\n\n# <@{user_2.id}> \n", embed=embed)
-

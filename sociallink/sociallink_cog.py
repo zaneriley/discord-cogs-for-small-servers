@@ -3,18 +3,17 @@ import os
 from datetime import UTC, datetime
 
 import discord
+import wcwidth
 from dotenv import load_dotenv
 from redbot.core import Config, commands
-import wcwidth
 
 from utilities.discord_utils import PaginatorView
 
 from .commands.confidants import ConfidantsManager
 from .commands.journal import JournalManager
 from .commands.rank import RankManager
-from .services.events import EventBus, EventManager
+from .services.events import EventManager, event_bus
 from .services.leveling import LevelManager
-from .services.avatars import react_with_confidant_emojis
 
 load_dotenv()
 
@@ -64,9 +63,9 @@ class SocialLink(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
-        self.event_bus = EventBus()
+        self.event_bus = event_bus
         self.rank_manager = RankManager()
-        self.journal_manager = JournalManager(self.config)
+        self.journal_manager = JournalManager(self.config, self.event_bus)
         self.level_manager = LevelManager(self.config, self.event_bus)
         self.confidants_manager = ConfidantsManager(self.bot, self.config)
         self.event_manager = EventManager(self.config, self.level_manager, self.confidants_manager)
@@ -176,7 +175,11 @@ class SocialLink(commands.Cog):
             return
 
         success, message = await self.level_manager.handle_link(
-            ctx, user1, user2, score_increment, event_type, "Simulated event"
+            ctx,
+            user1,
+            user2,
+            score_increment,
+            event_type,
         )
         if success:
             await ctx.send(
@@ -204,16 +207,15 @@ class SocialLink(commands.Cog):
 
         # Add points to both users
         success_me, message_me = await self.level_manager.handle_link(
-            ctx, me, user, points, "manual_add", "Manually added points"
-        )
-        success_user, message_user = await self.level_manager.handle_link(
-            ctx, user, me, points, "manual_add", "Manually added points"
+            ctx,
+            me,
+            user,
+            points,
+            "manual_add",
         )
 
-        if success_me and success_user:
-            await ctx.send(
-                f"Added {points} points to both {me.display_name} and {user.display_name}."
-            )
+        if success_me:
+            await ctx.send(f"Added {points} points to both {me.display_name} and {user.display_name}.")
             logger.info(f"Added {points} points to both {me.display_name} and {user.display_name}.")
         else:
             await ctx.send("Failed to add points due to an internal error.")
@@ -277,16 +279,17 @@ class SocialLink(commands.Cog):
         else:
             await ctx.send(f"Failed to create journal entry: {result}")
 
-
     @commands.hybrid_command(name="confidants", aliases=["sociallink_confidants"])
     async def confidants(self, ctx: commands.Context):
         """Check your bonds with friends and allies."""
         user_id = ctx.author.id  # Get the user ID directly as an integer
+
         def get_max_width(emoji_str, name):
             max_width = 0
             for char in emoji_str + name:
                 max_width = max(max_width, wcwidth.wcwidth(char))
             return max_width
+
         # Fetch real user data
         user_data = await self.config.user(
             ctx.author
@@ -297,13 +300,15 @@ class SocialLink(commands.Cog):
             return
 
         # Determine the maximum length of the names
-        max_name_length = max(len(ctx.guild.get_member(int(confidant_id)).display_name) for confidant_id in user_data["scores"])
+        max_name_length = max(
+            len(ctx.guild.get_member(int(confidant_id)).display_name) for confidant_id in user_data["scores"]
+        )
         max_level = await self.config.max_levels()  # Get max level from config
 
         message = "# <a:hearty2k:1208204286962565161> Confidants \n\n"
         for confidant_id, score in user_data["scores"].items():
             level = await self.level_manager.calculate_level(score)
-            level_display = "𝙈𝘼𝙓 <a:ui_sparkle:1241181537190547547>" if level == max_level else f"★ {level}"
+            level_display = "<a:ui_sparkle:1241181537190547547> 𝙈𝘼𝙓" if level == max_level else f" ★ {level}"
             emoji = await self.confidants_manager.get_user_emoji(discord.Object(id=confidant_id))
             member = ctx.guild.get_member(int(confidant_id))
             name = member.display_name if member else "Unknown"
@@ -311,7 +316,7 @@ class SocialLink(commands.Cog):
             # Pad the name to align the ranks
             emoji_str = f"<{'a' if emoji.animated else ''}:{emoji.name}:{emoji.id}>" if emoji else ""
             max_width = get_max_width(emoji_str, name)
-            padding = "`" + '⠀' * (max_name_length - len(name) + max_width + 5) + "`"
+            padding = "⠀" * (max_name_length - len(name) + max_width + 5)
             mention = f"<@{confidant_id}>"
             padded_mention = f"{mention}{padding}"
 
@@ -324,8 +329,6 @@ class SocialLink(commands.Cog):
         else:
             await ctx.send(message)
 
-
-
     @sociallink.command()
     async def rank(self, ctx):
         """Show's a server-wide ranking of users based on their aggregate confidant score."""
@@ -337,18 +340,13 @@ class SocialLink(commands.Cog):
     async def journal(self, ctx, entries_per_page: int = 10):
         """Shows a list of events that increased links between users."""
         try:
-            pages = await self.journal_manager.display_journal(
-                ctx.author, entries_per_page
-            )
+            pages = await self.journal_manager.display_journal(ctx.author, entries_per_page)
             paginator = PaginatorView(pages)
             await ctx.send(pages[0], view=paginator)
-        except Exception as e:
-            logger.exception(
-                "Error processing journal for user %s", {ctx.author.id}
-            )
-            await ctx.send(
-                "An error occurred while retrieving your journal. Please try again later."
-            )
+        except Exception:
+            logger.exception("Error processing journal for user %s", {ctx.author.id})
+            await ctx.send("An error occurred while retrieving your journal. Please try again later.")
+
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
         """
@@ -371,7 +369,6 @@ class SocialLink(commands.Cog):
         """
         Handles the 'level_up' event dispatched by the LevelManager
         """
-        pass
 
     # Listeners for sLink activity
     @commands.Cog.listener()
