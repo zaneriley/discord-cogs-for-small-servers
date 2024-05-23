@@ -1,27 +1,44 @@
 import logging
 import os
-from typing import Callable, List, Optional, Union
+from collections.abc import Callable
 
 import discord
 from discord import ForumTag, HTTPException, NotFound, TextChannel
-from discord.ext import commands
 from discord.ext.commands import Context
-from discord.ui import Button, Item, Modal, View
+from discord.ui import Item, Modal, View
 
 logger = logging.getLogger(__name__)
-
 
 DEFAULT_THREAD_NAME = "Hello World Thread"
 DEFAULT_THREAD_MESSAGE = "This is the first message in the thread."
 THREAD_CREATION_ERROR = "An error occurred while creating the thread."
 
+async def is_server_owner(bot, user_id: int) -> bool:
+    """
+    Checks if the given user ID belongs to a server owner.
+
+    Args:
+    ----
+        bot: The bot instance.
+        user_id: The ID of the user to check.
+
+    Returns:
+    -------
+        True if the user is a server owner, False otherwise.
+
+    """
+    user = await bot.fetch_user(user_id)
+    if user.bot:
+        return False
+
+    return any(guild.owner_id == user_id for guild in bot.guilds)
 
 async def create_discord_thread(
     ctx: Context,
     channel_id: int,
     thread_name: str = DEFAULT_THREAD_NAME,
     thread_content: str = DEFAULT_THREAD_MESSAGE,
-    tags: Optional[List[ForumTag]] = None,
+    tags: list[ForumTag] | None = None,
 ) -> None:
     """
     Create a thread in the specified Discord channel.
@@ -32,9 +49,7 @@ async def create_discord_thread(
     :param thread_content: Initial message for the thread
     :param tags: List of tags to be added to the thread
     """
-    logger.info(
-        f"Entering create_discord_thread with context: {ctx}, channel_id: {channel_id}"
-    )
+    logger.info(f"Entering create_discord_thread with context: {ctx}, channel_id: {channel_id}")
     logger.debug(f"Type of ctx: {type(ctx)}, Type of channel_id: {type(channel_id)}")
     channel = ctx.guild.get_channel(channel_id)
     if channel is None:
@@ -50,9 +65,7 @@ async def create_discord_thread(
 
         logger.info(f"Created thread {thread} in channel {channel_id}.")
         logger.debug(f"Type of thread: {type(thread)}")
-        logger.debug(
-            f"thread.id: {thread.id}, thread.name: {thread.name}, thread.content: {thread.content}"
-        )
+        logger.debug(f"thread.id: {thread.id}, thread.name: {thread.name}, thread.content: {thread.content}")
 
         # Get the "Movie Club" tag
         movie_club_tag = None
@@ -81,9 +94,7 @@ async def create_discord_thread(
     except AttributeError as ae:
         logger.error(f"AttributeError: {ae}. Object: {thread}")
     except Exception as e:
-        logger.error(
-            f"Unexpected error creating thread in channel {channel_id}: {e} Thread object: {thread}"
-        )
+        logger.error(f"Unexpected error creating thread in channel {channel_id}: {e} Thread object: {thread}")
         await ctx.send(THREAD_CREATION_ERROR)
 
 
@@ -93,7 +104,7 @@ CHANNEL_TYPE_ERROR = "Provided channel is not a text channel."
 
 
 async def send_discord_message(
-    ctx: Context, channel_id: int, message_content: str, role_id: Optional[int] = None
+    ctx: Context, channel_id: int, message_content: str, role_id: int | None = None
 ) -> str:
     """
     Sends a scheduled message to a specified channel.
@@ -129,7 +140,7 @@ async def send_discord_message(
         await ctx.send(SEND_MESSAGE_ERROR)
         logger.exception("HTTPException while sending message to channel %s", {channel.id})
         return SEND_MESSAGE_ERROR
-    except Exception as e:
+    except Exception:
         logger.exception("Unexpected error sending message to channel %s", {channel.id})
         await ctx.send(SEND_MESSAGE_ERROR)
         return SEND_MESSAGE_ERROR
@@ -143,13 +154,13 @@ MAX_ITEMS_LIMIT = 25  # Define a constant for the maximum number of items
 async def create_discord_modal(
     ctx: Context,
     title: str,
-    items: Optional[List[Item]] = None,
-    timeout: Optional[float] = None,
-    custom_id: Optional[str] = None,
+    items: list[Item] | None = None,
+    timeout: float | None = None,
+    custom_id: str | None = None,
     wait_for_interaction: bool = False,
-    on_submit_callback: Optional[Callable[[Context], None]] = None,
-    on_error_callback: Optional[Callable[[Context, Exception], None]] = None,
-) -> Union[Modal, None]:
+    on_submit_callback: Callable[[Context], None] | None = None,
+    on_error_callback: Callable[[Context, Exception], None] | None = None,
+) -> Modal | None:
     """
     Create and display a Discord modal.
 
@@ -163,7 +174,6 @@ async def create_discord_modal(
     :param on_error_callback: Custom callback for errors
     :return: The modal instance or None if there's an error
     """
-
     logger.debug(f"Attempting to create modal with custom_id: {custom_id}")
 
     try:
@@ -174,15 +184,11 @@ async def create_discord_modal(
         # Add items to the modal with validation
         if items:
             if len(items) > MAX_ITEMS_LIMIT:
-                logger.error(
-                    f"Too many items provided for modal with custom_id: {custom_id}"
-                )
+                logger.error(f"Too many items provided for modal with custom_id: {custom_id}")
                 raise ValueError("Too many items provided for the modal.")
             for item in items:
                 modal.add_item(item)
-            logger.debug(
-                f"{len(items)} items added to modal with custom_id: {custom_id}"
-            )
+            logger.debug(f"{len(items)} items added to modal with custom_id: {custom_id}")
 
         # Define or set callbacks
         if on_submit_callback:
@@ -238,7 +244,7 @@ async def fetch_and_save_guild_banner(guild, save_path):
         async with aiohttp.ClientSession() as session:
             async with session.get(banner_url) as response:
                 if response.status == 200:
-                    with open(save_path, 'wb') as f:
+                    with open(save_path, "wb") as f:
                         f.write(await response.read())
                     logger.info(f"Banner successfully saved to {save_path}")
                     return save_path
@@ -252,10 +258,11 @@ async def fetch_and_save_guild_banner(guild, save_path):
         logger.error(f"General error fetching guild banner: {e}")
         return None
 
+
 async def restore_guild_banner(guild, file_path, *, delete_after_restore=False):
     """Restores the guild's banner from a saved file."""
     try:
-        async with aiofiles.open(file_path, 'rb') as file:
+        async with aiofiles.open(file_path, "rb") as file:
             image_data = await file.read()
         await guild.edit(banner=image_data)
         logger.info("Guild banner restored successfully.")
@@ -264,9 +271,10 @@ async def restore_guild_banner(guild, file_path, *, delete_after_restore=False):
             logger.info(f"Banner file {file_path} deleted after restoration.")
     except FileNotFoundError:
         logger.exception("Banner file not found.")
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to restore guild banner:")
         raise
+
 
 async def fetch_user_avatar(user):
     """
@@ -281,13 +289,16 @@ async def fetch_user_avatar(user):
         logger.exception("Failed to download avatar from: %s", avatar_url)
         return None
 
+
 class PaginatorView(View):
     def __init__(self, pages, timeout=180):
         super().__init__(timeout=timeout)
         self.pages = pages
         self.current_page = 0
         self.back_button = discord.ui.Button(emoji="⬅️", style=discord.ButtonStyle.primary)
-        self.page_button = discord.ui.Button(label=f"{self.current_page + 1} of {len(self.pages)}", style=discord.ButtonStyle.secondary, disabled=True)
+        self.page_button = discord.ui.Button(
+            label=f"{self.current_page + 1} of {len(self.pages)}", style=discord.ButtonStyle.secondary, disabled=True
+        )
         self.forward_button = discord.ui.Button(emoji="➡️", style=discord.ButtonStyle.primary)
         self.back_button.callback = self.previous_button_callback
         self.forward_button.callback = self.next_button_callback
@@ -335,4 +346,3 @@ class PaginatorView(View):
         # remove buttons on timeout
         message = await self.interaction.original_response()
         await message.edit(view=None)
-

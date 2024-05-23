@@ -1,4 +1,5 @@
 import logging
+import random
 from datetime import UTC, datetime
 
 import discord
@@ -16,8 +17,61 @@ class LevelManager(Observer):
     def __init__(self, config, event_bus):
         self.config = config
         self.event_bus = event_bus
-        logger.debug("Events possible: %s", self.event_bus._events)
+        logger.debug("Events possible: %s", self.event_bus.events)
         logger.debug("Subscribed to event %s", Events.ON_LEVEL_UP)
+
+    @classmethod
+    def get_level_up_message(cls, level, max_level, user):
+        user = user.display_name
+        level_1_messages = [
+            "A new bond has been formed!",
+            "A new path has opened up before you.",
+            f"I can start to feel a bond between me and {user}..."
+        ]
+
+        other_level_messages = [
+            f"Your bond with {user} has grown stronger!",
+            "Your relationship has reached a new level of trust!",
+            "Your connection has deepened, unlocking new potential!",
+            "Your bond has evolved, revealing new paths ahead!",
+            "You feel a surge of power!",
+        ]
+
+        max_level_messages = [
+            "Your bond has reached its ultimate form!",
+            "Your relationship has achieved its highest potential!",
+            "Your connection has transcended all limits!",
+            "Your bond has become unbreakable!",
+            "You have reached the pinnacle of your relationship!",
+        ]
+
+        if level == 1:
+            return random.choice(level_1_messages)  # noqa: S311
+        elif level == max_level:
+            return random.choice(max_level_messages)  # noqa: S311
+        else:
+            return random.choice(other_level_messages)  # noqa: S311
+
+    @classmethod
+    def next_level_messages(cls, level, max_level, user):
+        new_level_far = [
+            f"I don't think my bond with {user} will deepen just yet..."
+        ]
+
+        new_level_close= [
+            f"I feel like my bond with {user} will grow stronger soon..."
+        ]
+
+        max_level_read = [
+            f"I have a strong bond with {user}"
+        ]
+
+        if level == 1:
+            return random.choice(new_level_far)  # noqa: S311
+        elif level == max_level:
+            return random.choice(max_level_read)  # noqa: S311
+        else:
+            return random.choice(new_level_close)  # noqa: S311
 
     async def calculate_level(self, score):
         base_s_link = await self.config.base_s_link()
@@ -41,6 +95,8 @@ class LevelManager(Observer):
             stars = "★" * level + "☆" * (max_levels - level)
         return stars
 
+    # We need to declare this as a class method so that it can be used as a callback in the EventBus
+    @classmethod
     async def create_level_up_embed(
         self,
         journal_entry: str,
@@ -56,7 +112,7 @@ class LevelManager(Observer):
         embed = discord.Embed(
             title=title,
             description=description,
-            color=discord.Color.blue(),
+            color=discord.Color.blurple(),
         )
 
         embed.add_field(name=f"Rank {rank}", value=stars, inline=True)
@@ -74,6 +130,10 @@ class LevelManager(Observer):
             user1_data["scores"][user2_id_str] = user1_data["scores"].get(user2_id_str, 0) + score_increment
             user2_data["scores"][user1_id_str] = user2_data["scores"].get(user1_id_str, 0) + score_increment
 
+            # Calculate and set aggregate_score for both users
+            user1_data["aggregate_score"] = sum(user1_data["scores"].values())
+            user2_data["aggregate_score"] = sum(user2_data["scores"].values())
+
             # Calculate new levels
             user1_new_level = await self.calculate_level(user1_data["scores"][user2_id_str])
             user2_new_level = await self.calculate_level(user2_data["scores"][user1_id_str])
@@ -90,6 +150,7 @@ class LevelManager(Observer):
                 logger.info("Attempting to fire level up event for %s and %s", user1.display_name, user2.display_name)
                 self.event_bus.fire(
                     Events.ON_LEVEL_UP,
+                    ctx=ctx,
                     user_1=user1,
                     user_2=user2,
                     level=user1_new_level,
@@ -102,11 +163,10 @@ class LevelManager(Observer):
             # if user2_new_level > await self.calculate_level(user2_data["scores"][user1_id_str] - score_increment):
             #     await self.announce_rank_increase(user2, user1, user2_new_level)
 
-            # await self.journal_manager.create_journal_entry(event_type, user1, user2, timestamp, details)
-            # await self.journal_manager.create_journal_entry(event_type, user2, user1, timestamp, details)
-
             await self.config.user(user1).set_raw("scores", value=user1_data["scores"])
+            await self.config.user(user1).set_raw("aggregate_score", value=user1_data["aggregate_score"])
             await self.config.user(user2).set_raw("scores", value=user2_data["scores"])
+            await self.config.user(user2).set_raw("aggregate_score", value=user2_data["aggregate_score"])
 
         except KeyError:
             logger.exception("Key error accessing user data")
@@ -124,9 +184,9 @@ class LevelManager(Observer):
             )
 
     @event_bus.subscribe(Events.ON_LEVEL_UP)
-    async def handle_level_up(self, *args, **kwargs):
+    async def handle_level_up(cls, config, *args, **kwargs):  # noqa: N805
         logger.debug("Entered handle_level_up with args: %s, kwargs: %s", args, kwargs)
-
+        max_level = await config.max_levels()
         try:
             logger.debug("Received event %s", kwargs)
             user_1 = kwargs.get("user_1")
@@ -142,40 +202,47 @@ class LevelManager(Observer):
                 return
 
             # Fetch journal entries for both users
-            user_1_data = await self.config.user(user_1).all()
-            user_2_data = await self.config.user(user_2).all()
+            user_1_data = await config.user(user_1).all()
+            user_2_data = await config.user(user_2).all()
+
 
             # Get the latest journal entry for each user
             user_1_latest_journal = (
-                sorted(user_1_data.get("journal", []), key=lambda x: x["timestamp"], reverse=True)[0]
+                sorted(user_1_data.get("journal", []), key=lambda x: x["timestamp"], reverse=True)[0].get("description", "")
                 if user_1_data.get("journal")
                 else ""
             )
             user_2_latest_journal = (
-                sorted(user_2_data.get("journal", []), key=lambda x: x["timestamp"], reverse=True)[0]
+                sorted(user_2_data.get("journal", []), key=lambda x: x["timestamp"], reverse=True)[0].get("description", "")
                 if user_2_data.get("journal")
                 else ""
             )
 
             # The confidant the user ranked up with
-            embed_for_user_2 = await self.create_level_up_embed(
+            embed_for_user_2 = await LevelManager.create_level_up_embed(
                 journal_entry=user_2_latest_journal,
                 rank=level,
                 stars=stars,
                 avatar_url=user_2.display_avatar.url,
             )
 
-            embed_for_user_1 = await self.create_level_up_embed(
+            embed_for_user_1 = await LevelManager.create_level_up_embed(
                 journal_entry=user_1_latest_journal,
                 rank=level,
                 stars=stars,
                 avatar_url=user_1.display_avatar.url,
             )
 
+            level_up_message_user_1 = LevelManager.get_level_up_message(level, max_level, user_2)
+            level_up_message_user_2 = LevelManager.get_level_up_message(level, max_level, user_1)
+
             try:
-                await user_1.send(content=f"## Rank up!!\n\n# <@{user_2.id}> \n", embed=embed_for_user_2)
-                # TODO: TURNED OFF FOR PROTOTYPING DO NOT REMOVE
-                # await user_2.send(content=f"## Rank up!!\n\n# <@{user_1.id}> \n", embed=embed_for_user_1)
+                await user_1.send(
+                    content=f"## 𝙍𝘼𝙉𝙆 𝙐𝙋 - {level_up_message_user_1}\n\n# <@{user_2.id}>\n⠀", embed=embed_for_user_2
+                )
+                # await user_2.send(
+                #     content=f"## Rank up!!\n\n# <@{user_1.id}> \n_{level_up_message_user_2}_\n\n", embed=embed_for_user_1
+                # )
                 logger.info(
                     "Notified %s and %s of their increased social rank with stars.",
                     user_1.display_name,

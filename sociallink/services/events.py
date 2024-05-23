@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import UTC, datetime
+from functools import partial
 
 logger = logging.getLogger(__name__)
 
@@ -8,48 +9,108 @@ logger = logging.getLogger(__name__)
 class Events:
     ON_LEVEL_UP = "on_level_up"
     ON_SOCIAL_LINK = "on_social_link"
-    ON_JOURNAL_ENTRY = "on_journal_entry"
+    ON_JOURNAL_ENTRY = "on_journal_entry" 
 
+    # # Messaging
+    ON_MESSAGE_MENTION = "on_message_mention"
+    # ON_MESSAGE_MENTION_RECIPROCATED = "on_message_mention_reciprocated"
+    ON_MESSAGE_QUOTE = "on_message_quote"
+    ON_MESSAGE_WITH_MEDIA_ATTACHENT = "on_message_with_media_attachment"
+
+    # # Reactions
+    # ON_REACTION_ADD = "on_reaction_add"
+    # ON_REACTION_ADD_RECIPROCATED = "on_reaction_add_reciprocated"
+
+    # # Voice Channels
+    ON_VOICE_CHANNEL_JOIN = "on_voice_channel_join" 
+    # ON_VOICE_CHANNEL_EXTENDED_STAY = "on_voice_channel_extended_stay"
+    # ON_VOICE_CHANNEL_SCREEN_SHARE = "on_voice_channel_screen_share"
+
+    # # Threads
+    # ON_THREAD_CREATE = "on_thread_created"
+    # ON_THREAD_PARTICIPATION = "on_thread_participation"
+
+    # # Events (RSVPs)  # noqa: ERA001
+    # ON_EVENT_RSVP = "on_event_rsvp"
+
+    # Profile changes
+    ON_AVATAR_CHANGE = "on_avatar_change"
+
+    # # Gaming (If Applicable)
+    # ON_ACHIEVEMENT_UNLOCKED = "on_achievement_unlocked"
 
 class EventBus:
+
+    """
+    Event bus for managing events in a Discord bot.
+    This works as a singleton, so there's only one instance of the EventBus class.
+    The EventBus class is responsible for managing the event bus and dispatching events to subscribers.
+
+    Attributes
+    ----------
+    events: dict
+        A dictionary that maps event names to lists of subscribers.
+        Each subscriber is a function that takes a single argument, which is the event data.
+
+    Methods
+    -------
+    subscribe(event_name)
+        Subscribes a function to a specific event.
+        The function will be called whenever the event is dispatched.
+
+    fire(event_name, *args, **kwargs)
+        Dispatches an event to all subscribers.
+        The event data will be passed as arguments to the subscribers.
+
+    """
+
     _instance = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._events = {}  # noqa: SLF001
+            cls._instance.events = {}  # noqa: SLF001
+            cls._instance.config = None
         return cls._instance
 
     def __init__(self):
-        self._events = {Events.ON_LEVEL_UP: []}
+        self.events = {Events.ON_LEVEL_UP: []}
+
+    def set_config(self, config):
+        self.config = config
 
     def subscribe(self, event_name):
         def decorator(func):
-            if event_name not in self._events:
-                self._events[event_name] = []
-            self._events[event_name].append(func)
-            logger.debug("Subscriber %s subscribed to event %s", func, event_name)
-            logger.debug("Current events registered: %s", self._events)
+            if event_name not in self.events:
+                self.events[event_name] = []
+            # Check if the function is an instance method
+            if hasattr(func, "__self__"):
+                # Bind the instance method to its instance
+                bound_func = partial(func, func.__self__)
+                self.events[event_name].append(bound_func)
+            else:
+                self.events[event_name].append(func)
+            logger.debug("Subscriber %s subscribed to event %s\n", func, event_name)
+            logger.debug("Current events registered: %s\n\n", self.events)
             return func
 
         return decorator
 
     def fire(self, event_name, *args, **kwargs):
-        logger.debug("Current events registered: %s", self._events)
-        logger.debug("Firing event: %s with args: %s and kwargs: %s", event_name, args, kwargs)
-        if event_name in self._events:
-            for handler in self._events[event_name]:
+        logger.debug("Current events registered: %s", self.events)
+        logger.debug("Firing event: %s", event_name)
+        if event_name in self.events:
+            for handler in self.events[event_name]:
                 try:
                     logger.debug("Handling event %s with handler %s", event_name, handler)
                     if asyncio.iscoroutinefunction(handler):
-                        asyncio.create_task(handler(*args, **kwargs))
+                        asyncio.create_task(handler(self, config=self.config, *args, **kwargs))
                     else:
-                        handler(*args, **kwargs)
+                        handler(config=self.config, *args, **kwargs)
                 except Exception as e:
-                    logger.exception("Error in handler %s for event %s: %s", handler, event_name, e)
+                    logger.exception("Error in handler %s for event %s:\n %s", handler, event_name, e)
         else:
             logger.warning("No handlers found for event: %s", event_name)
-
 
 event_bus = EventBus()
 

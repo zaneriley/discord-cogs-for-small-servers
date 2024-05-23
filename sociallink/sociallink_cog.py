@@ -1,19 +1,22 @@
 import logging
 import os
-from datetime import UTC, datetime
 
 import discord
-import wcwidth
+
 from dotenv import load_dotenv
 from redbot.core import Config, commands
+from redbot.core.commands import has_permissions
 
 from utilities.discord_utils import PaginatorView
 
+from .commands.admin import AdminManager
 from .commands.confidants import ConfidantsManager
 from .commands.journal import JournalManager
 from .commands.rank import RankManager
 from .services.events import EventManager, event_bus
 from .services.leveling import LevelManager
+from .services.listeners import ListenerManager
+from .services.slinks import SLinkManager
 
 load_dotenv()
 
@@ -64,11 +67,17 @@ class SocialLink(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.event_bus = event_bus
-        self.rank_manager = RankManager()
+        self.event_bus.set_config(self.config)
+        self.rank_manager = RankManager(self.config)
         self.journal_manager = JournalManager(self.config, self.event_bus)
         self.level_manager = LevelManager(self.config, self.event_bus)
-        self.confidants_manager = ConfidantsManager(self.bot, self.config)
+        self.slink_manager = SLinkManager(self.bot, self.config, self.event_bus)
+        self.confidants_manager = ConfidantsManager(self.bot, self.config, self.level_manager)
         self.event_manager = EventManager(self.config, self.level_manager, self.confidants_manager)
+        self.admin_manager = AdminManager(self.bot, self.config, self.level_manager, self.confidants_manager, self.journal_manager)
+
+        # Register event listeners to fire events
+        self.listener_manager = ListenerManager(self.config, self.event_bus)
 
         default_global = {
             "guild_id": GUILD_ID,
@@ -97,6 +106,9 @@ class SocialLink(commands.Cog):
         self.config.register_guild(**default_events)
         self.config.register_user(**default_user)
         self.voice_sessions = {}  # {user_id: {"start": datetime, "channel": channel_id}}
+
+    async def setup(self):
+        await self.bot.add_cog(self.listener_manager)
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -133,207 +145,67 @@ class SocialLink(commands.Cog):
             await ctx.send("Invalid social link command passed.")
 
     @sociallink.group()
+    @has_permissions(administrator=True)
     async def admin(self, ctx):
         """Admin-only commands for managing social links."""
         if ctx.invoked_subcommand is None:
             await ctx.send("Invalid admin command.")
 
+    @admin.command(name="settings")
+    async def show_settings(self, ctx):
+        """Shows the user's confidants and the score for each."""
+        await self.admin_manager.show_settings(ctx)
+
     @admin.command(name="simulate")
     async def simulate_event(self, ctx, event_type: str, user1: discord.Member, user2: discord.Member):
-        valid_events = ["voice_channel", "message_mention", "reaction"]
-        if event_type not in valid_events:
-            await ctx.send(
-                f"Invalid event type: {event_type}. Please use one of the following: {', '.join(valid_events)}"
-            )
-            return
-
-        logger.info("Simulating event between %s and %s for %s.", user1.display_name, user2.display_name, event_type)
-
-        if not user1:
-            await ctx.send("The first user mention is invalid. Please check and try again.")
-            logger.error("Invalid user mention for user1: %s", ctx.message.content)
-            return
-        if not user2:
-            await ctx.send("The second user mention is invalid. Please check and try again.")
-            logger.error("Invalid user mention for user2: %s", {ctx.message.content})
-            return
-
-        events_config = await self.config.guild(ctx.guild).all()
-
-        if event_type not in events_config:
-            await ctx.send(f"No configuration found for event type: {event_type}")
-            return
-
-        event_points = events_config[event_type]["points"]
-
-        score_increment = event_points
-        if score_increment == 0:
-            await ctx.send(
-                f"No points configuration found for event type: {event_type}. Please check the configuration."
-            )
-            logger.error(f"No points configuration found for event type: {event_type}")
-            return
-
-        success, message = await self.level_manager.handle_link(
-            ctx,
-            user1,
-            user2,
-            score_increment,
-            event_type,
-        )
-        if success:
-            await ctx.send(
-                f"Simulated {event_type} event between {user1.display_name} and {user2.display_name}. Each received {score_increment} points."
-            )
-            logger.info(message)
-        else:
-            await ctx.send("Failed to simulate the event due to an internal error.")
-            logger.error(message)
+        """Simulates a social link event between two users."""
+        await self.admin_manager.simulate_event(ctx, event_type, user1, user2)
 
     @admin.command(name="add")
     async def add_points(self, ctx, user: discord.Member, points: int):
         """Add arbitrary points to yourself and another user."""
-        me = ctx.guild.get_member(289198795625857026)  # Your user ID
+        await self.admin_manager.add_points(ctx, user, points)
 
-        if not me:
-            await ctx.send("Could not find your user in the guild.")
-            logger.error("Could not find user with ID 289198795625857026 in the guild.")
+    @admin.command(name="reset")
+    async def reset(self, ctx, user: discord.Member):
+        """Resets the social link scores, journals, and other data for a user."""
+        def check(m):
+            return m.author == ctx.author and m.channel == ctx.channel
+
+        await ctx.send(f"Are you sure you want to reset all social link data for {user.display_name}? Type `yes` to confirm or `no` to cancel.")
+
+        try:
+            confirmation = await self.bot.wait_for('message', check=check, timeout=30.0)
+        except asyncio.TimeoutError:
+            await ctx.send("Reset operation timed out.")
             return
 
-        if not user:
-            await ctx.send("The user mention is invalid. Please check and try again.")
-            logger.error("Invalid user mention: %s", ctx.message.content)
-            return
-
-        # Add points to both users
-        success_me, message_me = await self.level_manager.handle_link(
-            ctx,
-            me,
-            user,
-            points,
-            "manual_add",
-        )
-
-        if success_me:
-            await ctx.send(f"Added {points} points to both {me.display_name} and {user.display_name}.")
-            logger.info(f"Added {points} points to both {me.display_name} and {user.display_name}.")
+        if confirmation.content.lower() == 'yes':
+            await self.admin_manager.reset_user_data(ctx, user)
         else:
-            await ctx.send("Failed to add points due to an internal error.")
-            logger.error(f"Failed to add points: {message_me}, {message_user}")
+            await ctx.send("Reset operation cancelled.")
 
-    @admin.command(name="settings")
-    async def show_settings(self, ctx):
-        base_s_link = await self.config.base_s_link()
-        level_exponent = await self.config.level_exponent()
-        max_levels = await self.config.max_levels()
-        decay_rate = await self.config.decay_rate()
-        decay_interval = await self.config.decay_interval()
-        events_config = await self.config.guild(ctx.guild).all()
-
-        levels_points = []
-        total_points = 0
-        for level in range(1, max_levels + 1):
-            points_for_level = base_s_link + (level**level_exponent)
-            total_points += points_for_level
-            levels_points.append((level, total_points))
-
-        event_points = "\n".join([f"- {event}: {details['points']} points" for event, details in events_config.items()])
-
-        levels_points_str = "\n".join([f"- Level {level}: {points} points" for level, points in levels_points])
-
-        settings_message = (
-            f"# Social Link settings:**\n"
-            f"- Base Points for Social Link: {base_s_link}\n"
-            f"- Level Exponent: {level_exponent}\n"
-            f"- Maximum Levels: {max_levels}\n"
-            f"- Decay Rate: {decay_rate} LP/day\n"
-            f"- Decay Interval: {decay_interval}\n\n"
-            f"**Event Points:**\n{event_points}\n\n"
-            f"**Levels and Points Required:**\n{levels_points_str}"
-        )
-
-        await ctx.send(settings_message)
-
-    @admin.command()
+    @admin.command(name="update_avatar_emojis")
     @commands.has_permissions(manage_emojis=True)
-    async def update_avatars(self, ctx):
-        """
-        Command to trigger avatar updating and save the emoji IDs in the configuration.
-        """
-        emoji_mapping = await self.confidants_manager.update_avatar_emojis()
-        for user_id, emoji_id in emoji_mapping.items():
-            await self.config.user_from_id(user_id).set_raw("emoji_id", value=emoji_id)
-        await ctx.send("Avatars updated and emoji IDs saved successfully.")
+    async def update_avatar_emojis(self, ctx):
+        """Updates all user avatars as emojis in the specified guild and returns a mapping of user IDs to emoji IDs."""
+        await self.admin_manager.update_avatar_emojis(ctx)
 
     @admin.command(name="journal_entry")
     async def test_journal_entry(self, ctx, user: discord.Member, *, event_details: str):
-        """Test command for creating a journal entry."""
-        # Create journal entry with timestamp:
-        timestamp = datetime.now(tz=UTC)
-        success, result = await self.journal_manager.create_journal_entry(
-            "admin_test", user, user, timestamp, event_details
-        )
-
-        if success:
-            await ctx.send(f"Journal entry successfully created: {result}")
-        else:
-            await ctx.send(f"Failed to create journal entry: {result}")
+        """Create a journal entry with timestamp, author, and event details."""
+        await self.admin_manager.test_journal_entry(ctx, user, event_details=event_details)
 
     @commands.hybrid_command(name="confidants", aliases=["sociallink_confidants"])
     async def confidants(self, ctx: commands.Context):
         """Check your bonds with friends and allies."""
-        user_id = ctx.author.id  # Get the user ID directly as an integer
-
-        def get_max_width(emoji_str, name):
-            max_width = 0
-            for char in emoji_str + name:
-                max_width = max(max_width, wcwidth.wcwidth(char))
-            return max_width
-
-        # Fetch real user data
-        user_data = await self.config.user(
-            ctx.author
-        ).all()  # Use the 'all' method to get all data associated with the user
-
-        if not user_data.get("scores"):  # Simplified check for scores
-            await ctx.send("No confidants found. Seek out allies to forge unbreakable bonds.")
-            return
-
-        # Determine the maximum length of the names
-        max_name_length = max(
-            len(ctx.guild.get_member(int(confidant_id)).display_name) for confidant_id in user_data["scores"]
-        )
-        max_level = await self.config.max_levels()  # Get max level from config
-
-        message = "# <a:hearty2k:1208204286962565161> Confidants \n\n"
-        for confidant_id, score in user_data["scores"].items():
-            level = await self.level_manager.calculate_level(score)
-            level_display = "<a:ui_sparkle:1241181537190547547> 𝙈𝘼𝙓" if level == max_level else f" ★ {level}"
-            emoji = await self.confidants_manager.get_user_emoji(discord.Object(id=confidant_id))
-            member = ctx.guild.get_member(int(confidant_id))
-            name = member.display_name if member else "Unknown"
-
-            # Pad the name to align the ranks
-            emoji_str = f"<{'a' if emoji.animated else ''}:{emoji.name}:{emoji.id}>" if emoji else ""
-            max_width = get_max_width(emoji_str, name)
-            padding = "⠀" * (max_name_length - len(name) + max_width + 5)
-            mention = f"<@{confidant_id}>"
-            padded_mention = f"{mention}{padding}"
-
-            message += f"### {emoji_str}⠀{padded_mention}{level_display}\n"
-
-        message += f"\nYour rank: {user_data.get('aggregate_score', 0)} pts (not implemented yet)"
-
-        if ctx.interaction:
-            await ctx.interaction.response.send_message(message, ephemeral=True)
-        else:
-            await ctx.send(message)
+        await self.confidants_manager.confidants(ctx)
 
     @sociallink.command()
     async def rank(self, ctx):
         """Show's a server-wide ranking of users based on their aggregate confidant score."""
-        sorted_users = await self.rank_manager.get_rankings(self.config)
-        rank_message = self.rank_manager.format_rankings(sorted_users, ctx.author.id)
+        user_id = ctx.author.id  
+        rank_message = await self.rank_manager.get_rankings_leaderboard(user_id)
         await ctx.send(rank_message)
 
     @sociallink.command()
@@ -363,17 +235,6 @@ class SocialLink(commands.Cog):
                         logger.info(f"Updated emoji for {after.display_name}")
             except Exception:
                 logger.exception("Failed to update avatar for %s", {after.display_name})
-
-    @commands.Cog.listener()
-    async def on_level_up(self, event_data):
-        """
-        Handles the 'level_up' event dispatched by the LevelManager
-        """
-
-    # Listeners for sLink activity
-    @commands.Cog.listener()
-    async def on_voice_state_update(self, member, before, after):
-        await self.event_manager.on_voice_state_update(member, before, after)
 
     async def _update_interaction_time(self, user_id, channel_id, end_time):
         session = self.voice_sessions[user_id]

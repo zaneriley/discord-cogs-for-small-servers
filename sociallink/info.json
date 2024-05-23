@@ -1,14 +1,14 @@
 {
     "author": ["badcity"],
     "description": "Tracks social links and aggregate scores between users.",
-    "install_msg": "Thank you for installing SocialLink! TThis cog is meant for small servers to stay more connected and engaged with each other.",
+    "install_msg": "Thank you for installing SocialLink! This cog is meant for small servers to stay more connected and engaged with each other.",
     "short": "Tracks social links and aggregate scores between users.",
     "end_user_data_statement": "This cog persistently stores discord IDs, tracks mutual interactions between users, and aggregates scores between users.",
     "min_bot_version": "3.0.0",
     "hidden": false,
     "disabled": false,
     "required_cogs": {},
-    "requirements": ["openai"],
+    "requirements": ["asyncio", "events", "pillow", "wcwidth", "openai"],
     "tags": ["social", "link", "mutual", "interaction", "score"],
     "type": "COG"
 }

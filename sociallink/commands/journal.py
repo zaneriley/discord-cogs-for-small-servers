@@ -14,8 +14,15 @@ class JournalManager(Observer):
         self.config = config
         self.event_bus = event_bus
 
+    @classmethod
     async def create_journal_entry(
-        self, event_type, initiator: discord.Member, confidant: discord.Member, timestamp: datetime, details: str = None
+        self,
+        config,
+        event_type,
+        initiator: discord.Member,
+        confidant: discord.Member,
+        timestamp: datetime,
+        details: str = None,
     ) -> tuple:
         """
         Creates a social link journal entry based on a Discord interaction and confirms its addition.
@@ -57,15 +64,15 @@ class JournalManager(Observer):
             }
 
             # Get the user's data
-            user_data = await self.config.user(initiator).all()
+            user_data = await config.user(initiator).all()
 
             user_data["journal"].append(entry)
 
             # Save the updated user data
-            await self.config.user(initiator).set(user_data)
+            await config.user(initiator).set(user_data)
 
             # Verify data persistence by retrieving it again
-            updated_user_data = await self.config.user(initiator).all()
+            updated_user_data = await config.user(initiator).all()
 
             if entry in updated_user_data["journal"]:
                 logger.info(f"Journal entry successfully added for user {initiator}: {entry}")
@@ -94,7 +101,7 @@ class JournalManager(Observer):
         journal_entries = user_data.get("journal", [])
 
         if not journal_entries:
-            return ["Your journal is empty. Engage with others to fill these pages with memories."]
+            return ["_Your journal is empty. Connect with others to fill these pages with memories._"]
 
         pages = []
         current_page_entries = []
@@ -121,7 +128,7 @@ class JournalManager(Observer):
         return None
 
     @event_bus.subscribe(Events.ON_LEVEL_UP)
-    async def handle_level_up(self, *args, **kwargs):
+    async def handle_level_up(cls, config, *args, **kwargs):
         logger.debug("Received event %s", kwargs)
 
         user_1 = kwargs.get("user_1")
@@ -133,9 +140,11 @@ class JournalManager(Observer):
         # description_user_1 = await generate_journal_description(event_type, user_1.id, user_2.id, details)
         # description_user_2 = await generate_journal_description(event_type, user_2.id, user_1.id, details)
 
-        # Create journal entries for both users
-        await self.journal_manager.create_journal_entry(event_type, user_1, user_2, timestamp, description_user_1)
-        await self.journal_manager.create_journal_entry(event_type, user_2, user_1, timestamp, description_user_2)
+        description_user_1 = "TODO: FILL THIS IN LATER"
+        description_user_2 = "TODO: FILL THIS IN LATER"
+        # # Create journal entries for both users
+        await JournalManager.create_journal_entry(config, event_type, user_1, user_2, timestamp, description_user_1)
+        await JournalManager.create_journal_entry(config, event_type, user_2, user_1, timestamp, description_user_2)
 
 
 async def generate_journal_description(self, event_type, initiator_id, confidant_id, details):
