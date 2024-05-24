@@ -1,9 +1,7 @@
 import logging
-from datetime import UTC, datetime
 
 import discord
 
-from emojilocker import EmojiLocker
 from sociallink.services.events import Events, event_bus
 
 logger = logging.getLogger(__name__)
@@ -15,7 +13,7 @@ class SLinkManager:
 
     def __init__(self, bot, config, event_bus):
         self.bot = bot
-        self.config = config 
+        self.config = config
         self.event_bus = event_bus
 
     @event_bus.subscribe(Events.ON_LEVEL_UP)
@@ -25,7 +23,7 @@ class SLinkManager:
         user = kwargs.get("user")
         confidant = kwargs.get("confidant")
         level = kwargs.get("level")
-        role_name = cls.role_format.format(user=confidant, level=level)
+        role_name = SLinkManager.role_format.format(user=confidant, level=level)
         role = discord.utils.get(ctx.guild.roles, name=role_name)
 
         if not role:
@@ -78,7 +76,7 @@ class SLinkManager:
                     except discord.Forbidden:
                         logger.exception("I do not have permission to create roles.")
                         return
-                    except discord.HTTPException as e:
+                    except discord.HTTPException:
                         logger.exception("Failed to create role:")
                         return
                 else:
@@ -87,9 +85,9 @@ class SLinkManager:
 
     async def create_confidant_emoji():
         pass
-    
+
     async def fetch_confidants_emojis(confidant,level):
-        return 
+        return
 
     async def add_emoji_to_role(self, ctx, emoji: discord.Emoji, level: int):
         """Allows a user to add an emoji to their level-based role."""

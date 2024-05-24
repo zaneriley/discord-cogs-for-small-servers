@@ -2,7 +2,6 @@ import logging
 import os
 
 import discord
-
 from dotenv import load_dotenv
 from redbot.core import Config, commands
 from redbot.core.commands import has_permissions
@@ -16,6 +15,7 @@ from .commands.rank import RankManager
 from .services.events import EventManager, event_bus
 from .services.leveling import LevelManager
 from .services.listeners import ListenerManager
+from .services.metrics_tracker import MetricsTracker
 from .services.slinks import SLinkManager
 
 load_dotenv()
@@ -29,10 +29,9 @@ GUILD_ID = int(os.getenv("GUILD_ID", "947277446678470696"))
 
 
 # TODO:
-# - Not accruing points when simulating events. Just storing the last points value.
-# - Aggregate score not working
-# - Refactor once it's working
-
+# - Log basic metrics
+# - Handle basic events to generate exp
+# - Add emoji handling (refactor emojilocker)
 
 class SocialLink(commands.Cog):
 
@@ -68,13 +67,15 @@ class SocialLink(commands.Cog):
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.event_bus = event_bus
         self.event_bus.set_config(self.config)
-        self.rank_manager = RankManager(self.config)
-        self.journal_manager = JournalManager(self.config, self.event_bus)
-        self.level_manager = LevelManager(self.config, self.event_bus)
-        self.slink_manager = SLinkManager(self.bot, self.config, self.event_bus)
+        self.rank_manager       = RankManager(self.config)
+        self.journal_manager    = JournalManager(self.config, self.event_bus)
+        self.level_manager      = LevelManager(self.config, self.event_bus)
+        self.slink_manager      = SLinkManager(self.bot, self.config, self.event_bus)
         self.confidants_manager = ConfidantsManager(self.bot, self.config, self.level_manager)
-        self.event_manager = EventManager(self.config, self.level_manager, self.confidants_manager)
-        self.admin_manager = AdminManager(self.bot, self.config, self.level_manager, self.confidants_manager, self.journal_manager)
+        self.event_manager      = EventManager(self.config, self.level_manager, self.confidants_manager)
+        self.listener_manager   = ListenerManager(self.config, self.event_bus)
+        self.metrics_tracker    = MetricsTracker(self.bot, self.config, self.event_bus)
+        self.admin_manager      = AdminManager(self.bot, self.config, self.level_manager, self.confidants_manager, self.journal_manager)
 
         # Register event listeners to fire events
         self.listener_manager = ListenerManager(self.config, self.event_bus)
@@ -88,6 +89,8 @@ class SocialLink(commands.Cog):
             "max_levels": 10,
             "decay_rate": 2,  # LP/day
             "decay_interval": "daily",
+            # Metrics Tracking
+            "metrics_enabled": False,
         }
         default_events = {
             "voice_channel": {
@@ -107,8 +110,6 @@ class SocialLink(commands.Cog):
         self.config.register_user(**default_user)
         self.voice_sessions = {}  # {user_id: {"start": datetime, "channel": channel_id}}
 
-    async def setup(self):
-        await self.bot.add_cog(self.listener_manager)
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -144,6 +145,9 @@ class SocialLink(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send("Invalid social link command passed.")
 
+    ################################
+    # Admin commands               #
+    ################################
     @sociallink.group()
     @has_permissions(administrator=True)
     async def admin(self, ctx):
@@ -175,18 +179,17 @@ class SocialLink(commands.Cog):
         await ctx.send(f"Are you sure you want to reset all social link data for {user.display_name}? Type `yes` to confirm or `no` to cancel.")
 
         try:
-            confirmation = await self.bot.wait_for('message', check=check, timeout=30.0)
+            confirmation = await self.bot.wait_for("message", check=check, timeout=30.0)
         except asyncio.TimeoutError:
             await ctx.send("Reset operation timed out.")
             return
 
-        if confirmation.content.lower() == 'yes':
+        if confirmation.content.lower() == "yes":
             await self.admin_manager.reset_user_data(ctx, user)
         else:
             await ctx.send("Reset operation cancelled.")
 
     @admin.command(name="update_avatar_emojis")
-    @commands.has_permissions(manage_emojis=True)
     async def update_avatar_emojis(self, ctx):
         """Updates all user avatars as emojis in the specified guild and returns a mapping of user IDs to emoji IDs."""
         await self.admin_manager.update_avatar_emojis(ctx)
@@ -196,6 +199,38 @@ class SocialLink(commands.Cog):
         """Create a journal entry with timestamp, author, and event details."""
         await self.admin_manager.test_journal_entry(ctx, user, event_details=event_details)
 
+    ################################
+    # Metrics Tracking             #
+    ################################
+    @sociallink.group()
+    @has_permissions(administrator=True)
+    async def metrics(self, ctx):
+        """Commands for managing game metrics."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send("Invalid metrics command passed.")
+
+    @metrics.command(name="enable")
+    async def enable_metrics(self, ctx):
+        """Enable metrics tracking."""
+        self.metrics_tracker.enable_metrics()
+        await ctx.send("Metrics tracking enabled.")
+
+    @metrics.command(name="disable")
+    async def disable_metrics(self, ctx):
+        """Disable metrics tracking."""
+        self.metrics_tracker.disable_metrics()
+        await ctx.send("Metrics tracking disabled.")
+
+        """Generate a report of the game metrics."""
+        success, message = self.metrics_tracker.generate_report()
+        if success:
+            await ctx.send("Report generated and sent.")
+        else:
+            await ctx.send(message)
+
+    ################################
+    # User facing commands         #
+    ################################
     @commands.hybrid_command(name="confidants", aliases=["sociallink_confidants"])
     async def confidants(self, ctx: commands.Context):
         """Check your bonds with friends and allies."""
@@ -204,7 +239,7 @@ class SocialLink(commands.Cog):
     @sociallink.command()
     async def rank(self, ctx):
         """Show's a server-wide ranking of users based on their aggregate confidant score."""
-        user_id = ctx.author.id  
+        user_id = ctx.author.id
         rank_message = await self.rank_manager.get_rankings_leaderboard(user_id)
         await ctx.send(rank_message)
 
@@ -219,8 +254,12 @@ class SocialLink(commands.Cog):
             logger.exception("Error processing journal for user %s", {ctx.author.id})
             await ctx.send("An error occurred while retrieving your journal. Please try again later.")
 
+    ################################
+    # Event listeners              #
+    ################################
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
+        # TODO: Move to avatars.py and use eventbus
         """
         Event listener to update emojis when a member's avatar changes.
         """
@@ -235,6 +274,16 @@ class SocialLink(commands.Cog):
                         logger.info(f"Updated emoji for {after.display_name}")
             except Exception:
                 logger.exception("Failed to update avatar for %s", {after.display_name})
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        """Event listener to track message activity."""
+        await self.listener_manager.on_message(message)
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        """Event listener to track voice channel activity."""
+        await self.listener_manager.on_voice_state_update(member,before,after)
 
     async def _update_interaction_time(self, user_id, channel_id, end_time):
         session = self.voice_sessions[user_id]

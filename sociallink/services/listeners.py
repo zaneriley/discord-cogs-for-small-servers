@@ -7,6 +7,7 @@ from sociallink.services.events import (
     Events,
     event_bus,  # import singleton
 )
+from sociallink.services.metrics_tracker import MetricsTracker  # Import your MetricsTracker class
 from utilities.image_utils import get_image_handler
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,6 @@ class ListenerManager(commands.Cog):
         self.config = config
         self.event_bus = event_bus
 
-    @commands.Cog.listener()
     async def on_message(self, message):
         """
         Listens for messages and fires the appropriate event.
@@ -28,6 +28,7 @@ class ListenerManager(commands.Cog):
         if message.attachments:
             self.event_bus.fire(Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT, message=message)
             logger.debug("Received event %s, message: %s", Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT, message)
+            await MetricsTracker.log_event("message_with_media_attachment", {"message_id": message.id})  # Log the event
         if message.reference is not None:
             # note that message.reference.resolved can be either a discord.Message or discord.DeletedReferencedMessage object.
             # If it's a discord.DeletedReferencedMessage object, the author attribute will not be available,
@@ -37,15 +38,17 @@ class ListenerManager(commands.Cog):
             )
             self.event_bus.fire(Events.ON_MESSAGE_QUOTE, message=message, replied_to=replied_to)
             logger.debug("Received event %s, message: %s, replied_to: %s", Events.ON_MESSAGE_QUOTE, message, replied_to)
+            await MetricsTracker.log_event("message_quote", {"message_id": message.id, "replied_to_id": replied_to.id if replied_to else None})  # Log the event
         if message.mentions:
             for member in message.mentions:
                 self.event_bus.fire(Events.ON_MESSAGE_MENTION, message=message, mentioned_member=member)
                 logger.debug(
                     "Received event %s, message: %s, mentioned_member: %s", Events.ON_MESSAGE_MENTION, message, member
                 )
+                await MetricsTracker.log_event("message_mention", {"message_id": message.id, "mentioned_member_id": member.id})  # Log the event
+
 
     # Voice channel listeners
-    @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         """Listens for voice state updates and fires the appropriate event."""
         if before.channel is None and after.channel is not None:
@@ -53,19 +56,21 @@ class ListenerManager(commands.Cog):
             logger.debug(
                 "Received event %s, member: %s, channel: %s", Events.ON_VOICE_CHANNEL_JOIN, member, after.channel
             )
+            await MetricsTracker.log_event("voice_channel_join", {"user_id": member.id, "channel_id": after.channel.id})
         elif before.channel is not None and after.channel is None:
             self.event_bus.fire(Events.ON_VOICE_CHANNEL_LEAVE, member=member, channel=before.channel)
             logger.debug(
                 "Received event %s, member: %s, channel: %s", Events.ON_VOICE_CHANNEL_LEAVE, member, before.channel
             )
+            await MetricsTracker.log_event("voice_channel_leave", {"user_id": member.id, "channel_id": before.channel.id})
 
     # Member profile listeners
-    @commands.Cog.listener()
     async def on_member_update(self, before, after):
         """Event listener to update emojis when a member's avatar changes."""
         if before.avatar != after.avatar:
             self.event_bus.fire(Events.ON_AVATAR_CHANGE, member=after)
             logger.debug("Received event %s, member: %s", Events.ON_AVATAR_CHANGE, after)
+            await MetricsTracker.log_event("avatar_change", {"member_id": after.id})  # Log the event
 
     # TODO:Move where appropriate
     @event_bus.subscribe(Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT)

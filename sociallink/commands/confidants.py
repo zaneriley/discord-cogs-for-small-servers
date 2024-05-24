@@ -6,7 +6,7 @@ import aiohttp
 import discord
 import wcwidth
 from PIL import Image
-from redbot.core import Config, commands
+from redbot.core import commands
 
 # from utilities.discord_utils import fetch_user_avatar
 
@@ -163,7 +163,7 @@ class ConfidantsManager:
         # Fetch real user data
         user_data = await self.config.user(
             ctx.author
-        ).all() 
+        ).all()
 
         if not user_data.get("scores"):  # Simplified check for scores
             await ctx.send("No confidants found. Seek out allies to forge unbreakable bonds.")
@@ -177,7 +177,7 @@ class ConfidantsManager:
 
         message = "# <a:hearty2k:1208204286962565161> Confidants \n\n"
         for confidant_id, score in user_data["scores"].items():
-            # Should we be putting levels in the config too? 
+            # Should we be putting levels in the config too?
             level = await self.level_manager.calculate_level(score)
             level_display = "<a:ui_sparkle:1241181537190547547> 𝙈𝘼𝙓" if level == max_level else f" ★ {level}"
             emoji = await self.get_user_emoji(discord.Object(id=confidant_id))

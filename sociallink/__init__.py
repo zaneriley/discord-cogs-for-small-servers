@@ -11,6 +11,5 @@ with open(Path(__file__).parent / "info.json") as fp:
 
 async def setup(bot: Red) -> None:
     social_link_cog = SocialLink(bot)
-    await social_link_cog.setup()
     await bot.add_cog(social_link_cog)
     await bot.tree.sync()  # Sync the command tree with Discord

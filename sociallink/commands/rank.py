@@ -16,7 +16,7 @@ class RankManager:
             "ᴇǫᴜᴀʟʟʏ ᴍᴀᴛᴄʜᴇᴅ",
             "ɴᴏ ᴏɴᴇ ꜱᴛᴀɴᴅꜱ ᴀʙᴏᴠᴇ.",
         ]
-   
+
     async def get_rankings_leaderboard(self, runner_id: int) -> str:
         """
         Calculates scores, ranks users, and formats a leaderboard message.

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class Events:
     ON_LEVEL_UP = "on_level_up"
     ON_SOCIAL_LINK = "on_social_link"
-    ON_JOURNAL_ENTRY = "on_journal_entry" 
+    ON_JOURNAL_ENTRY = "on_journal_entry"
 
     # # Messaging
     ON_MESSAGE_MENTION = "on_message_mention"
@@ -22,7 +22,8 @@ class Events:
     # ON_REACTION_ADD_RECIPROCATED = "on_reaction_add_reciprocated"
 
     # # Voice Channels
-    ON_VOICE_CHANNEL_JOIN = "on_voice_channel_join" 
+    ON_VOICE_CHANNEL_JOIN = "on_voice_channel_join"
+    ON_VOICE_CHANNEL_LEAVE = "on_voice_channel_leave"
     # ON_VOICE_CHANNEL_EXTENDED_STAY = "on_voice_channel_extended_stay"
     # ON_VOICE_CHANNEL_SCREEN_SHARE = "on_voice_channel_screen_share"
 
@@ -69,7 +70,7 @@ class EventBus:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance.events = {}  # noqa: SLF001
+            cls._instance.events = {}
             cls._instance.config = None
         return cls._instance
 
@@ -83,9 +84,7 @@ class EventBus:
         def decorator(func):
             if event_name not in self.events:
                 self.events[event_name] = []
-            # Check if the function is an instance method
             if hasattr(func, "__self__"):
-                # Bind the instance method to its instance
                 bound_func = partial(func, func.__self__)
                 self.events[event_name].append(bound_func)
             else:
