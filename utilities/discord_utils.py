@@ -2,6 +2,7 @@ import logging
 import os
 from collections.abc import Callable
 
+import aiohttp
 import discord
 from discord import ForumTag, HTTPException, NotFound, TextChannel
 from discord.ext.commands import Context
