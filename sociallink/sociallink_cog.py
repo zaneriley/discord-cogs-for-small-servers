@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import os
 
 import discord
+from discord import AllowedMentions
 from dotenv import load_dotenv
 from redbot.core import Config, commands
 from redbot.core.commands import has_permissions
@@ -12,7 +14,7 @@ from .commands.admin import AdminManager
 from .commands.confidants import ConfidantsManager
 from .commands.journal import JournalManager
 from .commands.rank import RankManager
-from .services.events import EventManager, event_bus
+from .services.events import event_bus
 from .services.leveling import LevelManager
 from .services.listeners import ListenerManager
 from .services.metrics_tracker import MetricsTracker
@@ -29,9 +31,11 @@ GUILD_ID = int(os.getenv("GUILD_ID", "947277446678470696"))
 
 
 # TODO:
-# - Log basic metrics
+# - Log server metrics (done?)
 # - Handle basic events to generate exp
+# - Log game metrics (confidants, levels, etc)
 # - Add emoji handling (refactor emojilocker)
+# - They add an emoji, then they choose a level
 
 class SocialLink(commands.Cog):
 
@@ -67,12 +71,12 @@ class SocialLink(commands.Cog):
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         self.event_bus = event_bus
         self.event_bus.set_config(self.config)
+        self.event_bus.register_bot(self.bot)
         self.rank_manager       = RankManager(self.config)
         self.journal_manager    = JournalManager(self.config, self.event_bus)
-        self.level_manager      = LevelManager(self.config, self.event_bus)
+        self.level_manager      = LevelManager(self.bot, self.config, self.event_bus)
         self.slink_manager      = SLinkManager(self.bot, self.config, self.event_bus)
         self.confidants_manager = ConfidantsManager(self.bot, self.config, self.level_manager)
-        self.event_manager      = EventManager(self.config, self.level_manager, self.confidants_manager)
         self.listener_manager   = ListenerManager(self.config, self.event_bus)
         self.metrics_tracker    = MetricsTracker(self.bot, self.config, self.event_bus)
         self.admin_manager      = AdminManager(self.bot, self.config, self.level_manager, self.confidants_manager, self.journal_manager)
@@ -91,6 +95,7 @@ class SocialLink(commands.Cog):
             "decay_interval": "daily",
             # Metrics Tracking
             "metrics_enabled": False,
+            "restrict_avatar_emojis_to_roles": None, # Initially, then set to admin roles
         }
         default_events = {
             "voice_channel": {
@@ -104,12 +109,16 @@ class SocialLink(commands.Cog):
                 "points": 2,
             },
         }
-        default_user = {"scores": {}, "aggregate_score": 0, "journal": []}
+        default_roles = {
+            "role_format": "{level} - @{user}",
+            "role_icons": {}  # Icons will be set per user
+        }
+        default_user = {"scores": {}, "aggregate_score": 0, "journal": [], "onboarding_sent": False}
         self.config.register_global(**default_global)
         self.config.register_guild(**default_events)
         self.config.register_user(**default_user)
-        self.voice_sessions = {}  # {user_id: {"start": datetime, "channel": channel_id}}
-
+        self.config.register_guild(**default_roles)
+        self.voice_sessions = {}
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -136,6 +145,15 @@ class SocialLink(commands.Cog):
                 "aggregate_score": 0,
                 "journal": [],
             }
+
+        # Set admin role IDs for restricting avatar emojis
+        if guild:
+            admin_roles = await self.bot.get_admin_roles(guild)
+            admin_role_ids = [role.id for role in admin_roles]
+            await self.config.restrict_avatar_emojis_to_roles.set(admin_role_ids)
+            logger.info("Admin role is set to %s", admin_role_ids)
+        else:
+            logger.warning("Guild not found during initialization. Avatar emoji role not set.")
 
         logger.info("SocialLink cog ready and social link scores initialized")
 
@@ -192,7 +210,7 @@ class SocialLink(commands.Cog):
     @admin.command(name="update_avatar_emojis")
     async def update_avatar_emojis(self, ctx):
         """Updates all user avatars as emojis in the specified guild and returns a mapping of user IDs to emoji IDs."""
-        await self.admin_manager.update_avatar_emojis(ctx)
+        await self.admin_manager.update_avatar_emojis(ctx, self.bot, self.config)
 
     @admin.command(name="journal_entry")
     async def test_journal_entry(self, ctx, user: discord.Member, *, event_details: str):
@@ -234,22 +252,35 @@ class SocialLink(commands.Cog):
     @commands.hybrid_command(name="confidants", aliases=["sociallink_confidants"])
     async def confidants(self, ctx: commands.Context):
         """Check your bonds with friends and allies."""
-        await self.confidants_manager.confidants(ctx)
+        message = await self.confidants_manager.confidants(ctx)
+        allowed_mentions = AllowedMentions(everyone=False, users=False, roles=False)
+        if ctx.interaction:
+            await ctx.interaction.response.send_message(message, ephemeral=True)
+        else:
+            await ctx.send(message)
 
-    @sociallink.command()
-    async def rank(self, ctx):
-        """Show's a server-wide ranking of users based on their aggregate confidant score."""
+    @commands.hybrid_command(name="rank", aliases=["sociallink_rank"])
+    async def rank(self, ctx: commands.Context):
+        """See your rank in the server."""
         user_id = ctx.author.id
         rank_message = await self.rank_manager.get_rankings_leaderboard(user_id)
-        await ctx.send(rank_message)
+        if ctx.interaction:
+            await ctx.interaction.response.send_message(rank_message, ephemeral=True)
+        else:
+            await ctx.send(rank_message)
 
-    @sociallink.command()
-    async def journal(self, ctx, entries_per_page: int = 10):
-        """Shows a list of events that increased links between users."""
+
+    @commands.hybrid_command(name="journal", aliases=["sociallink_journal"])
+    async def journal(self, ctx: commands.Context):
+        """WIP: Lookback on events that increased your Confidant scores."""
         try:
+            entries_per_page = 10
             pages = await self.journal_manager.display_journal(ctx.author, entries_per_page)
             paginator = PaginatorView(pages)
-            await ctx.send(pages[0], view=paginator)
+            if ctx.interaction:
+                await ctx.interaction.response.send_message(pages[0], view=paginator, ephemeral=True)
+            else:
+                await ctx.send(pages[0], view=paginator)
         except Exception:
             logger.exception("Error processing journal for user %s", {ctx.author.id})
             await ctx.send("An error occurred while retrieving your journal. Please try again later.")

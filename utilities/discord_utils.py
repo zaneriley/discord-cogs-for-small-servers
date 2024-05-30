@@ -2,11 +2,14 @@ import logging
 import os
 from collections.abc import Callable
 
+import aiofiles
 import aiohttp
 import discord
 from discord import ForumTag, HTTPException, NotFound, TextChannel
 from discord.ext.commands import Context
 from discord.ui import Item, Modal, View
+
+from utilities.image_utils import get_image_handler
 
 logger = logging.getLogger(__name__)
 
@@ -289,6 +292,34 @@ async def fetch_user_avatar(user):
 
         logger.exception("Failed to download avatar from: %s", avatar_url)
         return None
+
+
+async def create_or_update_role(guild: discord.Guild, role_name: str, image_source: str):
+    # Fetch the role if it exists
+    role = discord.utils.get(guild.roles, name=role_name)
+
+    # Fetch image data for the role icon
+    image_handler = get_image_handler(image_source)
+    image_data = await image_handler.fetch_image_data()
+
+    if role:
+        # If the role exists, update it with the new icon
+        try:
+            await role.edit(display_icon=image_data, reason="Updating role icon")
+            logger.info("Updated role %s with new icon.", role.name)
+        except discord.Forbidden:
+            logger.exception("Bot does not have permission to edit roles.")
+        except discord.HTTPException:
+            logger.exception("Failed to edit role:")
+    else:
+        # If the role does not exist, create it with the icon
+        try:
+            role = await guild.create_role(name=role_name, display_icon=image_data, reason="Creating new role with icon")
+            logger.info("Created new role %s with a new icon.", role.name)
+        except discord.Forbidden:
+            logger.exception("Bot does not have permission to create roles.")
+        except discord.HTTPException:
+            logger.exception("Failed to create role:")
 
 
 class PaginatorView(View):

@@ -90,6 +90,8 @@ class RankManager:
 
         for user_id, data in sorted_users_data:
             score = data["aggregate_score"]
+            if score == 0:  # Skip users with 0 points
+                continue
             if score != previous_score:
                 if tie_group:
                     rank_message += self._format_tie_group(tie_group, current_rank, runner_id)
@@ -115,7 +117,7 @@ class RankManager:
             user_mentions = " & ".join([self._format_user_mention(user_id, runner_id) for user_id, _ in tie_group])
 
         score = tie_group[0][1]
-        return f"{rank}.{user_mentions} **{score}pts** — {random.choice(self.tie_messages)}\n"  # noqa: S311
+        return f"{rank}.{user_mentions} {score}pts — {random.choice(self.tie_messages)}\n"  # noqa: S311
 
     def _format_user_mention(self, user_id: int, runner_id: int) -> str:
         """Helper function to format user mentions consistently, highlighting the command runner."""

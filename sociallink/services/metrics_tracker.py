@@ -47,8 +47,8 @@ class MetricsTracker:
 
         cls.metrics[event_type].append(log_entry)
         logging.info("%s: %s", event_type, details)
-        event_count_before_save = 10
-        if sum(len(events) for events in cls.metrics.values()) >= 1:
+        event_count_before_save = 2
+        if sum(len(events) for events in cls.metrics.values()) >= event_count_before_save:
             await cls.save_metrics()
 
     @classmethod
@@ -74,26 +74,26 @@ class MetricsTracker:
     def get_metrics(self):
         return self.metrics if self.metrics_enabled else None
 
-    @event_bus.subscribe(Events.ON_MESSAGE_MENTION)
-    def handle_user_activity(self, *args, **kwargs):
-        # Increment active user count
-        pass
+    # @event_bus.subscribe(Events.ON_MESSAGE_MENTION)
+    # def handle_user_activity(self, *args, **kwargs):
+    #     # Increment active user count
+    #     pass
 
-    @event_bus.subscribe(Events.ON_VOICE_CHANNEL_JOIN)
-    def handle_voice_channel_join(*args, **kwargs):
-        user_id = kwargs.get("user_id")
-        MetricsTracker.metrics["voice_channel_joins"].append({
-            "timestamp": datetime.now(tz=UTC),
-            "user_id": user_id,
-        })
+    # @event_bus.subscribe(Events.ON_VOICE_CHANNEL_JOIN)
+    # def handle_voice_channel_join(*args, **kwargs):
+    #     user_id = kwargs.get("user_id")
+    #     MetricsTracker.metrics["voice_channel_joins"].append({
+    #         "timestamp": datetime.now(tz=UTC),
+    #         "user_id": user_id,
+    #     })
 
-    @event_bus.subscribe(Events.ON_SOCIAL_LINK)
-    def handle_social_link(self, *args, **kwargs):
-        # Increment social links created count
-        # Update total social link score
-        pass
+    # @event_bus.subscribe(Events.ON_SOCIAL_LINK)
+    # def handle_social_link(self, *args, **kwargs):
+    #     # Increment social links created count
+    #     # Update total social link score
+    #     pass
 
-    @event_bus.subscribe(Events.ON_LEVEL_UP)
-    def handle_level_up(self, *args, **kwargs):
-        # Increment rank changes count
-        pass
+    # @event_bus.subscribe(Events.ON_LEVEL_UP)
+    # def handle_level_up(self, *args, **kwargs):
+    #     # Increment rank changes count
+    #     pass

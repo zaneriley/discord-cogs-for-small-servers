@@ -25,26 +25,35 @@ class ListenerManager(commands.Cog):
         - On message quote/reply: ON_MESSAGE_QUOTE
         - On message mention: ON_MESSAGE_MENTION
         """
+        channel_id = message.channel.id
         if message.attachments:
-            self.event_bus.fire(Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT, message=message)
-            logger.debug("Received event %s, message: %s", Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT, message)
+            self.event_bus.fire(Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT, message=message, channel_id=channel_id)
+            logger.debug("Received event %s, message: %s, channel_id: %s", Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT, message, channel_id)
             await MetricsTracker.log_event("message_with_media_attachment", {"message_id": message.id})  # Log the event
         if message.reference is not None:
+            
             # note that message.reference.resolved can be either a discord.Message or discord.DeletedReferencedMessage object.
             # If it's a discord.DeletedReferencedMessage object, the author attribute will not be available,
             # so we check the type of message.reference.resolved before accessing the author attribute.
             replied_to = (
                 message.reference.resolved.author if isinstance(message.reference.resolved, discord.Message) else None
             )
-            self.event_bus.fire(Events.ON_MESSAGE_QUOTE, message=message, replied_to=replied_to)
-            logger.debug("Received event %s, message: %s, replied_to: %s", Events.ON_MESSAGE_QUOTE, message, replied_to)
+            if replied_to == message.author:
+                return
+
+            points = await self.config.guild(message.guild).get_raw("message_mention", "points")
+
+            self.event_bus.fire(Events.ON_MESSAGE_QUOTE,  message=message, author=message.author, points=points, confidant=replied_to, channel_id=message.channel.id)
+            logger.debug("Received event %s, message: %s, replied_to: %s, channel_id: %s", Events.ON_MESSAGE_QUOTE, message, replied_to, channel_id)
             await MetricsTracker.log_event("message_quote", {"message_id": message.id, "replied_to_id": replied_to.id if replied_to else None})  # Log the event
         if message.mentions:
             for member in message.mentions:
-                self.event_bus.fire(Events.ON_MESSAGE_MENTION, message=message, mentioned_member=member)
-                logger.debug(
-                    "Received event %s, message: %s, mentioned_member: %s", Events.ON_MESSAGE_MENTION, message, member
-                )
+                if member == message.author:
+                    continue
+                points = await self.config.guild(message.guild).get_raw("message_mention", "points")
+
+                self.event_bus.fire(Events.ON_MESSAGE_MENTION, message=message, author=message.author,confidant=member, points=points,channel_id=message.channel.id)
+                logger.debug("Received event %s, message: %s, mentioned_member: %s, channel_id: %s", Events.ON_MESSAGE_MENTION, message, member, channel_id)
                 await MetricsTracker.log_event("message_mention", {"message_id": message.id, "mentioned_member_id": member.id})  # Log the event
 
 

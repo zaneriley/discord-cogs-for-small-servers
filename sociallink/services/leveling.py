@@ -14,11 +14,19 @@ logger = logging.getLogger(__name__)
 
 
 class LevelManager(Observer):
-    def __init__(self, config, event_bus):
+    def __init__(self, bot, config, event_bus):
+        self.bot = bot
         self.config = config
         self.event_bus = event_bus
         logger.debug("Events possible: %s", self.event_bus.events)
         logger.debug("Subscribed to event %s", Events.ON_LEVEL_UP)
+
+        # Basic dumb events for prototypign
+        # in the future we should use fancier logic to
+        # determine a sociallink
+        self.event_bus.events[Events.ON_MESSAGE_MENTION].append(self.handle_link)
+        self.event_bus.events[Events.ON_MESSAGE_QUOTE].append(self.handle_link)
+
 
     @classmethod
     def get_level_up_message(cls, level, max_level, user):
@@ -26,11 +34,11 @@ class LevelManager(Observer):
         level_1_messages = [
             "A new bond has been formed!",
             "A new path has opened up before you.",
-            f"I can start to feel a bond between me and {user}..."
+            "Feels like a bond is forming..."
         ]
 
         other_level_messages = [
-            f"Your bond with {user} has grown stronger!",
+            f"Your bond has grown stronger!",
             "Your relationship has reached a new level of trust!",
             "Your connection has deepened, unlocking new potential!",
             "Your bond has evolved, revealing new paths ahead!",
@@ -38,9 +46,9 @@ class LevelManager(Observer):
         ]
 
         max_level_messages = [
-            "Your bond has reached its ultimate form!",
-            "Your relationship has achieved its highest potential!",
-            "Your connection has transcended all limits!",
+            f"Your bond with {user}has reached its ultimate form!",
+            f"Your relationship with {user} has achieved its highest potential!",
+            f"Your connection with {user} has transcended all limits!",
             "Your bond has become unbreakable!",
             "You have reached the pinnacle of your relationship!",
         ]
@@ -99,6 +107,7 @@ class LevelManager(Observer):
     @classmethod
     async def create_level_up_embed(
         self,
+        title: str,
         journal_entry: str,
         rank: int,
         stars: str,
@@ -107,21 +116,30 @@ class LevelManager(Observer):
         """
         Creates an embed for a confidant.
         """
-        title = "𝘾𝙊𝙉𝙁𝙄𝘿𝘼𝙉𝙏"  # noqa: RUF001, RUF003𝘿𝘼𝙉𝙏"F001𝘿𝘼𝙉𝙏"
         description = journal_entry
         embed = discord.Embed(
             title=title,
             description=description,
             color=discord.Color.blurple(),
         )
-
+        embed.set_author(name="𝘾𝙊𝙉𝙁𝙄𝘿𝘼𝙉𝙏")
         embed.add_field(name=f"Rank {rank}", value=stars, inline=True)
         embed.set_thumbnail(url=avatar_url)
 
         return embed
 
-    async def handle_link(self, ctx, user1, user2, score_increment, event_type):
+    async def handle_link(self, *args, **kwargs):
         try:
+            ctx = kwargs.get("ctx")
+            user1 = kwargs.get("author")
+            user2 = kwargs.get("confidant")
+            logger.debug("Handling link between %s and %s", user1, user2)
+            score_increment = kwargs.get("score_increment")
+            event_type = kwargs.get("event_type")
+            channel_id = kwargs.get("channel_id")
+            score_increment = kwargs.get("points")
+
+
             user1_id_str = str(user1.id)
             user2_id_str = str(user2.id)
             user1_data = await self.config.user(user1).all()
@@ -157,6 +175,7 @@ class LevelManager(Observer):
                     stars=stars,
                     event_type=event_type,
                     timestamp=timestamp,
+                    channel_id=channel_id,  # Add this line to include channel_id
                 )
 
             # TODO: Suppress for now while we prototype
@@ -184,15 +203,18 @@ class LevelManager(Observer):
             )
 
     @event_bus.subscribe(Events.ON_LEVEL_UP)
-    async def handle_level_up(cls, config, *args, **kwargs):  # noqa: N805
+    async def handle_level_up(cls, bot, config, *args, **kwargs):  # noqa: N805
         logger.debug("Entered handle_level_up with args: %s, kwargs: %s", args, kwargs)
         max_level = await config.max_levels()
         try:
+            
             logger.debug("Received event %s", kwargs)
             user_1 = kwargs.get("user_1")
             user_2 = kwargs.get("user_2")
             level = kwargs.get("level")
             stars = kwargs.get("stars")
+            channel_id = kwargs.get("channel_id")
+            
 
             user_1_id_str = str(user_1.id)
             user_2_id_str = str(user_2.id)
@@ -200,7 +222,13 @@ class LevelManager(Observer):
             if not user_1_id_str or not user_2_id_str:
                 logger.error("One or both users not found.")
                 return
-
+            
+            # Fetch the channel object
+            channel = bot.get_channel(channel_id)
+            if not channel:
+                logger.error("Channel with ID %s not found.", channel_id)
+                return
+            
             # Fetch journal entries for both users
             user_1_data = await config.user(user_1).all()
             user_2_data = await config.user(user_2).all()
@@ -220,14 +248,16 @@ class LevelManager(Observer):
 
             # The confidant the user ranked up with
             embed_for_user_2 = await LevelManager.create_level_up_embed(
-                journal_entry=user_2_latest_journal,
+                journal_entry="",
+                title=f"@{user_2.display_name}",
                 rank=level,
                 stars=stars,
                 avatar_url=user_2.display_avatar.url,
             )
 
             embed_for_user_1 = await LevelManager.create_level_up_embed(
-                journal_entry=user_1_latest_journal,
+                journal_entry="",
+                title=f"@{user_1.display_name}",
                 rank=level,
                 stars=stars,
                 avatar_url=user_1.display_avatar.url,
@@ -236,19 +266,23 @@ class LevelManager(Observer):
             level_up_message_user_1 = LevelManager.get_level_up_message(level, max_level, user_2)
             level_up_message_user_2 = LevelManager.get_level_up_message(level, max_level, user_1)
 
-            try:
-                await user_1.send(
-                    content=f"## 𝙍𝘼𝙉𝙆 𝙐𝙋 - {level_up_message_user_1}\n\n# <@{user_2.id}>\n⠀", embed=embed_for_user_2
-                )
-                # await user_2.send(
-                #     content=f"## Rank up!!\n\n# <@{user_1.id}> \n_{level_up_message_user_2}_\n\n", embed=embed_for_user_1
-                # )
-                logger.info(
-                    "Notified %s and %s of their increased social rank with stars.",
-                    user_1.display_name,
-                    user_2.display_name,
-                )
-            except Exception:
-                logger.exception("Failed to send notification:")
+
+            # Send the initial message with both embeds to the channel
+            await channel.send(
+                content=f"## 𝙍𝘼𝙉𝙆 𝙐𝙋\n\n",
+                embeds=[embed_for_user_2, embed_for_user_1]
+            )
+
+            # Send the follow-up message with the level-up message to the channel
+            await channel.send(
+                content=f"{level_up_message_user_1}"
+            )
+
+            logger.info(
+                "Notified %s and %s of their increased social rank with stars in channel %s.",
+                user_1.display_name,
+                user_2.display_name,
+                channel_id
+            )
         except Exception:
-            logger.exception("Failed to process level up:")
+            logger.exception("Failed to send notification:")

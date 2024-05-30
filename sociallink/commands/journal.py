@@ -107,7 +107,7 @@ class JournalManager(Observer):
         current_page_entries = []
 
         for entry in reversed(journal_entries):
-            current_page_entries.append(f"{entry['timestamp']}: {entry['description']} with <@{entry['confidant_id']}>")
+            current_page_entries.append(f"{entry['timestamp']}: {entry['description']} <@{entry['confidant_id']}>")
 
             if len(current_page_entries) >= entries_per_page:
                 pages.append("# <a:game_journal:1238442679382052934>  Journal \n\n" + "\n".join(current_page_entries))
@@ -140,7 +140,7 @@ class JournalManager(Observer):
         # description_user_1 = await generate_journal_description(event_type, user_1.id, user_2.id, details)
         # description_user_2 = await generate_journal_description(event_type, user_2.id, user_1.id, details)
 
-        description_user_1 = "TODO: FILL THIS IN LATER"
+        description_user_1 = ""
         description_user_2 = "TODO: FILL THIS IN LATER"
         # # Create journal entries for both users
         await JournalManager.create_journal_entry(config, event_type, user_1, user_2, timestamp, description_user_1)

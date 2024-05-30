@@ -5,25 +5,17 @@ from io import BytesIO
 import aiohttp
 import discord
 from PIL import Image
+from redbot.core import Config, commands
+
+from utilities.discord_utils import fetch_user_avatar
 
 logger = logging.getLogger(__name__)
 
 
-async def fetch_user_avatar(user):
-    """
-    Fetches the avatar for a user.
-    """
-    http_ok = 200
-    avatar_url = user.display_avatar.url
-    async with aiohttp.ClientSession() as session, session.get(avatar_url) as response:
-        if response.status == http_ok:
-            return await response.read()
-
-        logger.exception("Failed to download avatar from: %s", avatar_url)
-        return None
-
-
-async def upload_avatar_as_emoji(guild, user, avatar_data):
+async def upload_avatar_as_emoji(guild: discord.Guild, 
+                                 user: discord.User, 
+                                 avatar_data: bytes, 
+                                 config: Config) -> int | None:
     """
     Uploads a user's avatar as a guild emoji.
     """
@@ -32,6 +24,19 @@ async def upload_avatar_as_emoji(guild, user, avatar_data):
     asset_exceeds_max_size = 50045
     http_status_rate_limited = 429
     max_size = 256  # Discord's maximum emoji size is 256x256 pixels
+
+    allowed_role_ids = await config.get_raw("restrict_avatar_emojis_to_roles", default=None)
+    allowed_roles = []
+    if allowed_role_ids:
+        for role_id in allowed_role_ids:
+            role = guild.get_role(role_id)
+            if role:
+                allowed_roles.append(role)
+            else:
+                logger.warning(f"Role with ID {role_id} not found in the guild.")
+
+    logger.info("Restricting avatar emojis to roles: %s", allowed_roles)
+
 
     image = Image.open(BytesIO(avatar_data))
     if image.size[0] > max_size or image.size[1] > max_size:
@@ -48,22 +53,24 @@ async def upload_avatar_as_emoji(guild, user, avatar_data):
         try:
             if existing_emoji:
                 await existing_emoji.delete()
-            emoji = await guild.create_custom_emoji(name=emoji_name, image=avatar_data)
+            if allowed_roles:
+                emoji = await guild.create_custom_emoji(name=emoji_name, image=avatar_data, roles=allowed_roles)
+            else:
+                emoji = await guild.create_custom_emoji(name=emoji_name, image=avatar_data)
         except discord.HTTPException as e:
             if e.code == asset_exceeds_max_size:
                 logger.exception("Failed to upload avatar for %s", {user.display_name})
-                return None
+                raise
             if e.status == http_status_rate_limited:
                 retry_after = int(e.response.headers.get("Retry-After", backoff_delay * (2**attempt)))
                 logger.warning("Rate limited. Retrying in %s seconds", retry_after)
                 await asyncio.sleep(retry_after)
             else:
                 logger.exception("Failed to upload avatar for %s", {user.display_name})
-                return None
+                raise
         else:
             return emoji.id
     return None
-
 
 async def update_avatar_emojis(bot, config):
     """
@@ -72,39 +79,45 @@ async def update_avatar_emojis(bot, config):
     guild_id = await config.guild_id()
     guild = bot.get_guild(guild_id)
     if not guild:
-        raise ValueError("Guild not found")
+        no_guild_msg = f"Guild with ID {guild_id} not found."
+        raise ValueError(no_guild_msg)
     emoji_mapping = {}
     asset_exceeds_max_size = 50045
     for member in guild.members:
         try:
             avatar_data = await fetch_user_avatar(member)
-            emoji_id = await upload_avatar_as_emoji(guild, member, avatar_data)
+            emoji_id = await upload_avatar_as_emoji(guild, member, avatar_data,config)
             emoji_mapping[member.id] = emoji_id
             await config.user(member).set_raw("emoji_id", value=emoji_id)
         except discord.HTTPException as e:
             if e.code == asset_exceeds_max_size:
                 logger.exception("Failed to upload avatar for %s", {member.display_name})
+                raise
             else:
                 logger.exception("Failed to update avatar for %s", {member.display_name})
+                raise
         except Exception:
             logger.exception("Failed to update avatar for %s", {member.display_name})
+            raise
     return emoji_mapping
 
-
-async def get_user_emoji(bot, config, user):
+async def get_user_emoji(user: discord.User, config: Config, ctx: commands.Context) -> discord.Emoji | None:
     """
     Retrieves the stored emoji ID for a user.
     """
     emoji_id = await config.user(user).get_raw("emoji_id", default=None)
     if emoji_id:
         guild_id = await config.guild_id()
-        guild = bot.get_guild(guild_id)
+        guild = ctx.guild
         if guild is None:
             logger.error(f"Failed to find guild with ID {guild_id}")
             return None
-        return guild.get_emoji(emoji_id)
-    return None
-
+        emoji = guild.get_emoji(emoji_id)
+        if emoji:
+            return emoji
+        # This returns a blank emoji from our server. You'll likely need
+        # to use your own default emoji instead if you want to update this.
+    return discord.PartialEmoji(name="ui_blank", id=1244497311246192650)
 
 def react_with_confidant_emojis(func):
     async def wrapper(self, ctx, *args, **kwargs):
