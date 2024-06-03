@@ -127,19 +127,26 @@ class WeatherGovFormatter(WeatherFormatterInterface):
                 logger.error("No 'periods' key found in 'properties' of weather data.")
                 return "No forecast available for today."
 
+            daytime_period = None
+            nighttime_period = None
             for period in periods:
-                if current_date in period["startTime"] and period["isDaytime"] == is_daytime:
-                    current_period = period
-                    break
-            else:
+                if current_date in period["startTime"]:
+                    if period["isDaytime"]:
+                        daytime_period = period
+                    else:
+                        nighttime_period = period
+
+            if not daytime_period or not nighttime_period:
                 logger.info("No matching period found for today's date and time.")
                 return "No forecast available for today."
 
             city_code = CityCodes.codes.get(city_name, city_name)
-            short_forecast = current_period["shortForecast"].capitalize()
-            temperature_f = current_period["temperature"]
-            temperature_c = round((temperature_f - 32) * 5 / 9)
-            precipitation_value = current_period.get("probabilityOfPrecipitation", {}).get("value", "0")
+            short_forecast = daytime_period["shortForecast"].capitalize()
+            temperature_f_high = daytime_period["temperature"]
+            temperature_c_high = round((temperature_f_high - 32) * 5 / 9)
+            temperature_f_low = nighttime_period["temperature"]
+            temperature_c_low = round((temperature_f_low - 32) * 5 / 9)
+            precipitation_value = daytime_period.get("probabilityOfPrecipitation", {}).get("value", "0")
             if precipitation_value is None or precipitation_value == "None":
                 precipitation = " 0%"
             else:
@@ -153,11 +160,11 @@ class WeatherGovFormatter(WeatherFormatterInterface):
             return "Error processing weather data."
         else:
             return {
-                    "City": f"{city_code}  ",
-                    "Cond": f"{short_forecast}  ",
-                    "F": f"{temperature_f}°{current_period['temperatureUnit']}  ",
-                    "C": f"{temperature_c}°C  ",
-                    "Precip": f"{precipitation}",
+                    "ᴄɪᴛʏ": f"{city_code}  ",
+                    "ᴄᴏɴᴅ": f"{short_forecast}  ",
+                    "ʜ°ᴄ": f"{temperature_c_high}°  ",
+                    "ʟ°ᴄ": f"{temperature_c_low}°  ",
+                    "ᴘʀᴇᴄɪᴘ": f"{precipitation}",
                 }
 
     def format_alerts(self, alerts):

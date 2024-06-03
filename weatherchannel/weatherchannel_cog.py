@@ -33,8 +33,8 @@ class WeatherChannel(commands.Cog):
 
     def on_forecast_task_complete(self, task):
         """Schedule the next run at 6 AM Eastern or Tokyo time, whichever comes next."""
-        eastern = pytz.timezone('America/New_York')
-        tokyo = pytz.timezone('Asia/Tokyo')
+        eastern = pytz.timezone("America/New_York")
+        tokyo = pytz.timezone("Asia/Tokyo")
         now_utc = datetime.now(pytz.utc)
 
         next_eastern_6am = (now_utc.astimezone(eastern)
@@ -43,13 +43,13 @@ class WeatherChannel(commands.Cog):
         if next_eastern_6am < now_utc:
             next_eastern_6am += timedelta(days=1)
 
-        next_tokyo_6am = (now_utc.astimezone(tokyo)
-                          .replace(hour=8, minute=0, second=0, microsecond=0)
-                          .astimezone(pytz.utc))
-        if next_tokyo_6am < now_utc:
-            next_tokyo_6am += timedelta(days=1)
+        # next_tokyo_6am = (now_utc.astimezone(tokyo)
+        #                 .replace(hour=8, minute=0, second=0, microsecond=0)
+        #                 .astimezone(pytz.utc))
+        # if next_tokyo_6am < now_utc:
+        #     next_tokyo_6am += timedelta(days=1)
 
-        next_run_time = min(next_eastern_6am, next_tokyo_6am)
+        next_run_time = min(next_eastern_6am)
         delay = (next_run_time - now_utc).total_seconds()
         self.forecast_task.change_interval(seconds=delay)
         self.forecast_task.restart()
@@ -112,10 +112,9 @@ class WeatherChannel(commands.Cog):
             formatted_data = await self.fetch_weather("weather-gov", location.split(","), location)
             await ctx.send(f"{timestamp}\n```{formatted_data}```")
 
-    @tasks.loop(hours=1)
+    @tasks.loop(hours=1, after="on_forecast_task_complete")
     async def forecast_task(self):
         current_time = int(datetime.now(tz=UTC).timestamp())
-        timestamp = f"<t:{current_time}:F>"
 
         default_locations = await self.config_manager.get_default_locations(self.guild_id)
         if not default_locations:
@@ -132,7 +131,7 @@ class WeatherChannel(commands.Cog):
             # Ensure we have a list of dictionaries.
             table_data = [forecast for forecast in forecasts if isinstance(forecast, dict)]
 
-            keys = ["City", "C", "F", "Precip"]
+            keys = ["ᴄɪᴛʏ", "ʜ°ᴄ", "ʟ°ᴄ", "ᴘʀᴇᴄɪᴘ"]
             alignments = ["left", "left", "left", "right"]
             widths = get_max_widths(table_data, keys)
 
@@ -140,8 +139,8 @@ class WeatherChannel(commands.Cog):
             rows = [format_row(row, keys, widths, alignments) for row in table_data]
             table_string = header + "\n" + "\n".join(rows)
 
-            await channel.send(f"Local weather on the 8s (utc)\n```{table_string}\n```",
-                               allowed_mentions=discord.AllowedMentions.none()) 
+            await channel.send(f"Today's weather\n```{table_string}\n```",
+                               allowed_mentions=discord.AllowedMentions.none())
         else:
             logger.warning("Weather channel not found.")
 
