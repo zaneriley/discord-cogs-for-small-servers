@@ -18,16 +18,7 @@ Schedule movie nights more easily by conducting polls and managing movie suggest
 
 Next:
 - [ ] **Event Scheduler**: Plan and coordinate discord events, RSVPs, and send reminders. 
-
 - [ ] **Member Stats**: Track and display user activity and engagement on the server.
-
-## Requirements
-
-To use these cogs, you need the following:
-
-- **Python 3.8+**
-- **Discord.py**
-- **Red-DiscordBot**
 
 
 ![SeasonalRoles](https://github.com/zaneriley/discord-cogs-for-small-servers/assets/2167062/1feb3dbe-4818-479b-a93c-2f390ad43186)
@@ -36,6 +27,23 @@ Automatically assign and remove roles based on specified holidays and events.
 - [x] Assigns and removes roles based on defined holidays (currently semi-ficitious holidays)
 - [x] Includes a way to dry run changes and force holidays, for one-offs
 - [x] Allows users to opt-out of seasonal roles
+
+
+## SocialLink (WIP)
+
+An in-server discord game inspired by Persona video game series that encourage users to connect with each other. It works by lightly tracking key events (e.g. hanging out in VC channels for a while) and then assigning points to their "connection."
+
+- [x] /confidants command to list all confidants and their scores
+- [x] /journal command to view a log of events that increased links between users
+- [x] /rank command to see a leaderboard of who has the deepest connections with other users
+
+## WeatherChannel
+
+A simple command to display users local weather together at a specific time. Currently, you'll need to load the locations in a .env file like:
+```
+WX_LOCATIONS={"San Francisco": ["weather-gov", "37.7749,-122.4194"], "New York City": ["weather-gov", "40.730610,-73.935242"]}
+```
+
 
 ## Installation
 

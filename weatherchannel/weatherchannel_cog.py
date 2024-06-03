@@ -2,9 +2,9 @@ import asyncio
 import logging
 import os
 from datetime import UTC, datetime, timedelta
-import pytz
 
 import discord
+import pytz
 from discord import app_commands
 from discord.ext import tasks
 from redbot.core import commands
@@ -38,13 +38,13 @@ class WeatherChannel(commands.Cog):
         now_utc = datetime.now(pytz.utc)
 
         next_eastern_6am = (now_utc.astimezone(eastern)
-                            .replace(hour=6, minute=0, second=0, microsecond=0)
+                            .replace(hour=8, minute=0, second=0, microsecond=0)
                             .astimezone(pytz.utc))
         if next_eastern_6am < now_utc:
             next_eastern_6am += timedelta(days=1)
 
         next_tokyo_6am = (now_utc.astimezone(tokyo)
-                          .replace(hour=6, minute=0, second=0, microsecond=0)
+                          .replace(hour=8, minute=0, second=0, microsecond=0)
                           .astimezone(pytz.utc))
         if next_tokyo_6am < now_utc:
             next_tokyo_6am += timedelta(days=1)
@@ -53,7 +53,7 @@ class WeatherChannel(commands.Cog):
         delay = (next_run_time - now_utc).total_seconds()
         self.forecast_task.change_interval(seconds=delay)
         self.forecast_task.restart()
-        
+
     def cog_unload(self):
         self.forecast_task.cancel()
 
@@ -133,14 +133,15 @@ class WeatherChannel(commands.Cog):
             table_data = [forecast for forecast in forecasts if isinstance(forecast, dict)]
 
             keys = ["City", "C", "F", "Precip"]
-            alignments = ["left", "left", "left", "left"]
+            alignments = ["left", "left", "left", "right"]
             widths = get_max_widths(table_data, keys)
 
             header = format_row({k: k for k in keys}, keys, widths, alignments)
             rows = [format_row(row, keys, widths, alignments) for row in table_data]
             table_string = header + "\n" + "\n".join(rows)
 
-            await channel.send(f"{timestamp}\n```\n{table_string}\n```") 
+            await channel.send(f"Local weather on the 8s (utc)\n```{table_string}\n```",
+                               allowed_mentions=discord.AllowedMentions.none()) 
         else:
             logger.warning("Weather channel not found.")
 

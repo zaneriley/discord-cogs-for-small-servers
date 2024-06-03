@@ -153,11 +153,11 @@ class WeatherGovFormatter(WeatherFormatterInterface):
             return "Error processing weather data."
         else:
             return {
-                    "City": city_code,
-                    "Cond": short_forecast,
-                    "F": f"{temperature_f}°{current_period['temperatureUnit']}",
-                    "C": f"{temperature_c}°C",
-                    "Precip": precipitation,
+                    "City": f"{city_code}  ",
+                    "Cond": f"{short_forecast}  ",
+                    "F": f"{temperature_f}°{current_period['temperatureUnit']}  ",
+                    "C": f"{temperature_c}°C  ",
+                    "Precip": f"{precipitation}",
                 }
 
     def format_alerts(self, alerts):
