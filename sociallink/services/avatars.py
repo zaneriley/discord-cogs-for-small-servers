@@ -2,7 +2,6 @@ import asyncio
 import logging
 from io import BytesIO
 
-import aiohttp
 import discord
 from PIL import Image
 from redbot.core import Config, commands
@@ -12,10 +11,9 @@ from utilities.discord_utils import fetch_user_avatar
 logger = logging.getLogger(__name__)
 
 
-async def upload_avatar_as_emoji(guild: discord.Guild, 
-                                 user: discord.User, 
-                                 avatar_data: bytes, 
-                                 config: Config) -> int | None:
+async def upload_avatar_as_emoji(
+    guild: discord.Guild, user: discord.User, avatar_data: bytes, config: Config
+) -> int | None:
     """
     Uploads a user's avatar as a guild emoji.
     """
@@ -36,7 +34,6 @@ async def upload_avatar_as_emoji(guild: discord.Guild,
                 logger.warning(f"Role with ID {role_id} not found in the guild.")
 
     logger.info("Restricting avatar emojis to roles: %s", allowed_roles)
-
 
     image = Image.open(BytesIO(avatar_data))
     if image.size[0] > max_size or image.size[1] > max_size:
@@ -72,6 +69,7 @@ async def upload_avatar_as_emoji(guild: discord.Guild,
             return emoji.id
     return None
 
+
 async def update_avatar_emojis(bot, config):
     """
     Updates all user avatars as emojis in the specified guild and returns a mapping of user IDs to emoji IDs.
@@ -86,7 +84,7 @@ async def update_avatar_emojis(bot, config):
     for member in guild.members:
         try:
             avatar_data = await fetch_user_avatar(member)
-            emoji_id = await upload_avatar_as_emoji(guild, member, avatar_data,config)
+            emoji_id = await upload_avatar_as_emoji(guild, member, avatar_data, config)
             emoji_mapping[member.id] = emoji_id
             await config.user(member).set_raw("emoji_id", value=emoji_id)
         except discord.HTTPException as e:
@@ -100,6 +98,7 @@ async def update_avatar_emojis(bot, config):
             logger.exception("Failed to update avatar for %s", {member.display_name})
             raise
     return emoji_mapping
+
 
 async def get_user_emoji(user: discord.User, config: Config, ctx: commands.Context) -> discord.Emoji | None:
     """
@@ -118,6 +117,7 @@ async def get_user_emoji(user: discord.User, config: Config, ctx: commands.Conte
         # This returns a blank emoji from our server. You'll likely need
         # to use your own default emoji instead if you want to update this.
     return discord.PartialEmoji(name="ui_blank", id=1244497311246192650)
+
 
 def react_with_confidant_emojis(func):
     async def wrapper(self, ctx, *args, **kwargs):

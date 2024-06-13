@@ -1,11 +1,7 @@
-import asyncio
 import logging
-from io import BytesIO
 
-import aiohttp
 import discord
 import wcwidth
-from PIL import Image
 from redbot.core import commands
 
 from sociallink.services.avatars import get_user_emoji
@@ -66,13 +62,11 @@ class ConfidantsManager:
                 max_width = max(max_width, wcwidth.wcwidth(char))
             return max_width
 
-        user_data = await self.config.user(
-            ctx.author
-        ).all()
+        user_data = await self.config.user(ctx.author).all()
 
         if not user_data.get("scores"):
             message = await ctx.send("_No confidants found. Seek out allies to forge unbreakable bonds._")
-            return
+            return None
 
         max_name_length = max(
             len(ctx.guild.get_member(int(confidant_id)).display_name) for confidant_id in user_data["scores"]
@@ -99,4 +93,3 @@ class ConfidantsManager:
 
         message += f"\nRank: {user_data.get('aggregate_score', 0)} pts\nType `/rank` for more"
         return message
-        

@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import UTC, datetime
 from functools import partial
 
 logger = logging.getLogger(__name__)
@@ -39,6 +38,7 @@ class Events:
 
     # # Gaming (If Applicable)
     # ON_ACHIEVEMENT_UNLOCKED = "on_achievement_unlocked"
+
 
 class EventBus:
 
@@ -83,7 +83,7 @@ class EventBus:
             Events.ON_MESSAGE_MENTION: [],
             Events.ON_MESSAGE_QUOTE: [],
             Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT: [],
-            Events.ON_AVATAR_CHANGE: []
+            Events.ON_AVATAR_CHANGE: [],
         }
 
     def set_config(self, config):
@@ -122,5 +122,6 @@ class EventBus:
                     logger.exception("Error in handler %s for event %s:\n %s", handler, event_name, e)
         else:
             logger.warning("No handlers found for event: %s", event_name)
+
 
 event_bus = EventBus()

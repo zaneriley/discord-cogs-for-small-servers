@@ -1,20 +1,18 @@
+import logging
 import os
-from typing import Optional
-
-
-from datetime import datetime
 import re
+from datetime import datetime
+
 import discord
 from discord.ext import tasks
-from redbot.core.bot import Red
 from redbot.core import Config, commands
+from redbot.core.bot import Red
 
-import logging
+from utilities.discord_utils import fetch_and_save_guild_banner
+from utilities.image_utils import get_image_handler
 
 from .holiday_management import HolidayService
 from .role_management import RoleManager
-from utilities.image_utils import get_image_handler
-from utilities.discord_utils import fetch_and_save_guild_banner
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -22,6 +20,7 @@ IDENTIFIER = int(os.getenv("IDENTIFIER", "1234567890"))
 GUILD_ID = int(os.getenv("GUILD_ID", "947277446678470696"))
 image_path = os.path.abspath(os.path.join("assets", "your-image.png"))
 logger.debug(f"Absolute image path: {image_path}")
+
 
 # IMAke sure banner saving adds the date it was saved
 # Make sure we update the "last updated date" in banner management
@@ -32,12 +31,12 @@ class SeasonalRoles(commands.Cog):
         Initialize the RPG Cog.
 
         Args:
+        ----
             bot (commands.Bot): The Red bot instance.
+
         """
         self.bot = bot
-        self.config = Config.get_conf(
-            self, identifier=IDENTIFIER, force_registration=True
-        )
+        self.config = Config.get_conf(self, identifier=IDENTIFIER, force_registration=True)
         self.config.register_guild()
         default_guild = {
             "notification_channel": None,
@@ -52,7 +51,12 @@ class SeasonalRoles(commands.Cog):
                     "color": "#906D8D",
                     "image": "assets/spring-blossom-01.png",
                 },
-                "Kids Day": {"date": "05-05", "color": "#68855A", "image": "assets/kids-day-01.png", "banner": "assets/kids-day-banner-01.png"},
+                "Kids Day": {
+                    "date": "05-05",
+                    "color": "#68855A",
+                    "image": "assets/kids-day-01.png",
+                    "banner": "assets/kids-day-banner-01.png",
+                },
                 "Midsummer Festival": {"date": "06-21", "color": "#4A6E8A"},
                 "Star Festival": {"date": "07-07", "color": "#D4A13D"},
                 "Friendship Day": {
@@ -82,8 +86,8 @@ class SeasonalRoles(commands.Cog):
             "banner_management": {
                 "original_banner_path": None,
                 "holiday_banner_path": None,
-                "last_banner_update": None,                 
-                "is_holiday_banner_active": False
+                "last_banner_update": None,
+                "is_holiday_banner_active": False,
             },
         }
         self.config.register_guild(**default_guild)
@@ -130,7 +134,7 @@ class SeasonalRoles(commands.Cog):
             await ctx.send(f"{member.display_name} is already in the {self.qualified_name}.")
 
     @member.command(name="remove")
-    async def member_remove(self, ctx, member: Optional[discord.Member], *, all_members: str = None):
+    async def member_remove(self, ctx, member: discord.Member | None, *, all_members: str = None):
         """Removes a member or all members from the opt-in list."""
         if all_members and all_members.lower() in {"everyone", "all", "everybody"}:
             await self.config.guild(ctx.guild).opt_in_users.set([])
@@ -163,7 +167,7 @@ class SeasonalRoles(commands.Cog):
                 return
         await self.config.guild(ctx.guild).opt_in_users.set(members)
         await ctx.send(f"Successfully added {config_type} to {self.qualified_name}.")
-    
+
     @member.command(name="list")
     async def member_list(self, ctx):
         """Lists all members who have opted in."""
@@ -194,9 +198,7 @@ class SeasonalRoles(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send("Invalid holiday command passed.")
 
-    async def validate_holiday(
-        self, ctx: commands.Context, name: str, date: str, color: str
-    ) -> bool:
+    async def validate_holiday(self, ctx: commands.Context, name: str, date: str, color: str) -> bool:
         if not name:
             await ctx.send("Please provide a name for the holiday.")
             return False
@@ -220,8 +222,8 @@ class SeasonalRoles(commands.Cog):
         name: str,
         date: str,
         color: str,
-        image: Optional[str] = None,
-        banner_url: Optional[str] = None
+        image: str | None = None,
+        banner_url: str | None = None,
     ) -> None:
         """Add a new holiday."""
         valid = await self.validate_holiday(ctx, name, date, color)
@@ -237,7 +239,9 @@ class SeasonalRoles(commands.Cog):
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
     @holiday.command(name="edit")
-    async def edit_holiday_command(self, ctx, name: str, date: str, color: str, image: Optional[str] = None, banner_url: Optional[str] = None):
+    async def edit_holiday_command(
+        self, ctx, name: str, date: str, color: str, image: str | None = None, banner_url: str | None = None
+    ):
         """Edit an existing holiday's details."""
         valid = await self.validate_holiday(ctx, name, date, color)
         if not valid:
@@ -292,7 +296,7 @@ class SeasonalRoles(commands.Cog):
         name: str,
         date: str,
         color: str,
-        image: Optional[str] = None,
+        image: str | None = None,
     ) -> discord.Role:
         valid = await self.validate_holiday(ctx, name, date, color)
         if not valid:
@@ -301,7 +305,9 @@ class SeasonalRoles(commands.Cog):
         role_manager = RoleManager(self.config)
         role = await role_manager.create_or_update_role(ctx.guild, name, color, image)
         if role:
-            await ctx.send(f"Role '{name}' has been {'updated' if discord.utils.get(ctx.guild.roles, name=name) else 'created'}.")
+            await ctx.send(
+                f"Role '{name}' has been {'updated' if discord.utils.get(ctx.guild.roles, name=name) else 'created'}."
+            )
         else:
             await ctx.send("Failed to create or update the role.")
         return role
@@ -331,16 +337,13 @@ class SeasonalRoles(commands.Cog):
                     f"Dry run mode {mode_str}. Any actions will be simulated, and no real changes will be made."
                 )
             else:
-                await ctx.send(
-                    f"Dry run mode {mode_str}. Actions will now make real changes."
-                )
+                await ctx.send(f"Dry run mode {mode_str}. Actions will now make real changes.")
         except Exception as e:
             logger.error(f"Error in toggle_dry_run: {e}")
 
-    #TODO TURN INTO SLASH COMMAND
+    # TODO TURN INTO SLASH COMMAND
     async def toggle_seasonal_role(self, ctx: commands.Context) -> None:
         """Toggle opting in/out from the seasonal role."""
-
         opt_out_users = await self.config.guild(ctx.guild).opt_out_users()
 
         if ctx.author.id in opt_out_users:
@@ -349,11 +352,7 @@ class SeasonalRoles(commands.Cog):
             current_date = datetime.now().date()
             holidays = await self.config.guild(ctx.guild).holidays()
             for holiday, details in holidays.items():
-                holiday_date = (
-                    datetime.strptime(details["date"], "%m-%d")
-                    .date()
-                    .replace(year=current_date.year)
-                )
+                holiday_date = datetime.strptime(details["date"], "%m-%d").date().replace(year=current_date.year)
                 if current_date == holiday_date:
                     role = discord.utils.get(ctx.guild.roles, name=holiday)
                     if role and role in ctx.author.roles:
@@ -366,11 +365,7 @@ class SeasonalRoles(commands.Cog):
             current_date = datetime.now().date()
             holidays = await self.config.guild(ctx.guild).holidays()
             for holiday, details in holidays.items():
-                holiday_date = (
-                    datetime.strptime(details["date"], "%m-%d")
-                    .date()
-                    .replace(year=current_date.year)
-                )
+                holiday_date = datetime.strptime(details["date"], "%m-%d").date().replace(year=current_date.year)
                 if current_date == holiday_date:
                     role = discord.utils.get(ctx.guild.roles, name=holiday)
                     if role and role in ctx.author.roles:
@@ -382,15 +377,15 @@ class SeasonalRoles(commands.Cog):
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
     @seasonal.command(name="check")
-    async def force_check_holidays(
-        self, ctx: commands.Context, date_str: Optional[str] = None
-    ):
+    async def force_check_holidays(self, ctx: commands.Context, date_str: str | None = None):
         """Force check holidays."""
         await self.check_holidays(ctx.guild, date_str=date_str, force=True)
         await ctx.send("Checked holidays for this guild.")
 
     @tasks.loop(hours=24)
-    async def check_holidays(self, guild: Optional[discord.Guild] = None, date_str: Optional[str] = None, force: bool = False):
+    async def check_holidays(
+        self, guild: discord.Guild | None = None, date_str: str | None = None, force: bool = False
+    ):
         if guild is None:
             guild = self.guild
             logger.debug("No guild provided, using default guild.")
@@ -409,12 +404,14 @@ class SeasonalRoles(commands.Cog):
         logger.debug(f"Current date: {current_date}")
 
         # Sort holidays by date to manage overlapping or back-to-back holidays
-        sorted_holidays = sorted(holidays.items(), key=lambda x: datetime.strptime(f"{current_date.year}-{x[1]['date']}", "%Y-%m-%d").date())
+        sorted_holidays = sorted(
+            holidays.items(), key=lambda x: datetime.strptime(f"{current_date.year}-{x[1]['date']}", "%Y-%m-%d").date()
+        )
         logger.debug(f"Sorted holidays: {sorted_holidays}")
         banner_config = await self.config.guild(guild).banner_management()
         all_roles = guild.roles
         for i, (holiday_name, details) in enumerate(sorted_holidays):
-            holiday_date_str = details['date']
+            holiday_date_str = details["date"]
             holiday_date = datetime.strptime(f"{current_date.year}-{holiday_date_str}", "%Y-%m-%d").date()
             days_until_holiday = (holiday_date - current_date).days
             logger.debug(f"Holiday '{holiday_name}' is {days_until_holiday} days away.")
@@ -424,18 +421,18 @@ class SeasonalRoles(commands.Cog):
             #     await guild.get_channel(947277448301670461).send("One week until Kid's Day, enjoy your koi streamers")  # Send a notification message
 
             # Save the original banner if within 7 days and not already saved
-            if days_until_holiday <= 7 and banner_config['original_banner_path'] is None:
+            if days_until_holiday <= 7 and banner_config["original_banner_path"] is None:
                 logger.debug("Attempting to save the original banner...")
                 save_path = os.path.join(os.path.dirname(__file__), f"assets/guild-banner-non-holiday-{guild.id}.png")
                 saved_path = await fetch_and_save_guild_banner(guild, save_path)
                 if saved_path:
-                    await self.config.guild(guild).banner_management.set_raw('original_banner_path', value=saved_path)
+                    await self.config.guild(guild).banner_management.set_raw("original_banner_path", value=saved_path)
                     logger.info("Original banner saved.")
 
             # Role and banner management
             if days_until_holiday < 0 or days_until_holiday > 7:
                 logger.debug(f"Handling past or far future holiday: {holiday_name}")
-                #TODO: Dry this out
+                # TODO: Dry this out
                 role_name = f"{holiday_name} {details['date']}"
                 role = discord.utils.get(all_roles, name=role_name)
                 logger.debug(f"role: {role}")
@@ -444,7 +441,7 @@ class SeasonalRoles(commands.Cog):
                     logger.info(f"Role '{holiday_name}' has been removed from the guild.")
                 if days_until_holiday < 0 and i == 0:  # Check if it's the first holiday past the current date
                     # Restore the original banner after the holiday ends
-                    original_banner_path = banner_config['original_banner_path']
+                    original_banner_path = banner_config["original_banner_path"]
                     if original_banner_path:
                         await self.change_server_banner(guild, original_banner_path)
                         logger.info("Restored the original banner.")
@@ -452,21 +449,24 @@ class SeasonalRoles(commands.Cog):
             elif 0 <= days_until_holiday <= 7:
                 logger.debug(f"Handling upcoming or current holiday: {holiday_name}")
                 if not force and days_until_holiday > 0:
-                    logger.debug(f"Skipping role application for '{holiday_name}' as it's not today and force is not enabled.")
+                    logger.debug(
+                        f"Skipping role application for '{holiday_name}' as it's not today and force is not enabled."
+                    )
                     continue
 
-                role = await self.role_manager.create_or_update_role(guild, holiday_name, details['color'], details['date'])
+                role = await self.role_manager.create_or_update_role(
+                    guild, holiday_name, details["color"], details["date"]
+                )
                 if role:
                     await self.role_manager.assign_role_to_all_members(guild, role)
                     logger.info(f"Applied holiday role for '{holiday_name}' to opted-in members.")
 
                 # Update the guild's banner if a holiday-specific banner is specified
-                if 'banner' in details and 0 <= days_until_holiday <= 7:
-                    holiday_banner_path = details['banner']
+                if "banner" in details and 0 <= days_until_holiday <= 7:
+                    holiday_banner_path = details["banner"]
                     await self.change_server_banner(guild, holiday_banner_path)
-                    await self.config.guild(guild).banner_management.set_raw('is_holiday_banner_active', value=True)
+                    await self.config.guild(guild).banner_management.set_raw("is_holiday_banner_active", value=True)
                     logger.info(f"Updated guild banner for '{holiday_name}' and set is_holiday_banner_active to True.")
-
 
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
@@ -483,7 +483,7 @@ class SeasonalRoles(commands.Cog):
         try:
             saved_path = await fetch_and_save_guild_banner(guild, save_path)
             if saved_path:
-                await self.config.guild(guild).banner_management.set_raw('original_banner_path', value=saved_path)
+                await self.config.guild(guild).banner_management.set_raw("original_banner_path", value=saved_path)
                 logger.info("Original banner saved.")
             else:
                 logger.error("Failed to save the original banner.")
@@ -499,8 +499,8 @@ class SeasonalRoles(commands.Cog):
 
         if holiday_details:
             logger.debug(f"Found holiday details for '{holiday_name}': {holiday_details}")
-            if 'banner' in holiday_details:
-                holiday_banner_path = os.path.join(os.path.dirname(__file__), holiday_details['banner'])
+            if "banner" in holiday_details:
+                holiday_banner_path = os.path.join(os.path.dirname(__file__), holiday_details["banner"])
                 try:
                     await self.change_server_banner(guild, holiday_banner_path)
                     logger.info(f"Updated guild banner for '{holiday_name}'.")
@@ -513,13 +513,12 @@ class SeasonalRoles(commands.Cog):
             await ctx.send(f"No details found for the holiday '{holiday_name}'.")
             logger.error(f"No details found for the holiday '{holiday_name}'.")
 
-
         exists, message = await self.holiday_service.validate_holiday_exists(holidays, holiday_name)
         if not exists:
             logger.error(f"Failed to find holiday: {message}")
             await ctx.send(message or "An error occurred.")
             return
-            
+
         success, message = await self.holiday_service.remove_all_except_current_holiday_role(guild, holiday_name)
         if message:
             logger.debug(message)
@@ -534,7 +533,6 @@ class SeasonalRoles(commands.Cog):
             await ctx.send(message)
         if not success:
             logger.error("Failed to apply holiday role.")
-
 
     @check_holidays.before_loop
     async def before_check_holidays(self):
@@ -569,8 +567,16 @@ class SeasonalRoles(commands.Cog):
             url = ctx.message.attachments[0].url
 
         result = await self.change_server_banner(ctx.guild, url)
-        await ctx.send(result)
+        if "successfully" in result.lower():
+            # Save the banner path as the non-holiday banner
+            save_path = os.path.join(os.path.dirname(__file__), f"assets/guild-banner-non-holiday-{ctx.guild.id}.png")
+            await fetch_and_save_guild_banner(ctx.guild, save_path)
+            await self.config.guild(ctx.guild).banner_management.set_raw("original_banner_path", value=save_path)
+            await ctx.send(f"Banner changed successfully and set as the non-holiday banner. Path: {save_path}")
+        else:
+            await ctx.send(result)
 
+    # TODO: Move banner update to utils and then utilize in theme store cog
     async def change_server_banner(self, guild, url):
         """Helper method to change the server banner using the image_utils handlers."""
         try:
@@ -580,9 +586,11 @@ class SeasonalRoles(commands.Cog):
 
             # Update the guild's banner
             await guild.edit(banner=image_bytes)
-            return "Banner changed successfully!"
+
         except Exception as e:
             return f"An error occurred: {e}"
+        else:
+            return "Banner changed successfully!"
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
@@ -608,4 +616,3 @@ class SeasonalRoles(commands.Cog):
 
         # Check and assign holiday roles using the existing method
         await self.check_holidays(member.guild, force=True)
-

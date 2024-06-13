@@ -1,16 +1,19 @@
-import discord
 import logging
-from typing import Optional
 import os
+
+import discord
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
 
 class RoleManager:
     def __init__(self, config):
         self.config = config
 
-    async def create_or_update_role(self, guild: discord.Guild, name: str, color: str, date: str, image: Optional[str] = None) -> discord.Role:
+    async def create_or_update_role(
+        self, guild: discord.Guild, name: str, color: str, date: str, image: str | None = None
+    ) -> discord.Role:
         """
         Creates a new role or updates an existing one with the given attributes.
         """
@@ -49,7 +52,7 @@ class RoleManager:
             except Exception as e:
                 logger.error(f"Error creating role {name} in {guild.name}: {e}")
                 return None
-            
+
     async def assign_role_to_all_members(self, guild: discord.Guild, role: discord.Role) -> None:
         """
         Assigns a specified role to all members who have opted in to the seasonal role, in a guild.
@@ -75,7 +78,7 @@ class RoleManager:
                         logger.error(
                             f"Permission error when trying to add role to member {member.name} in {guild.name}"
                         )
-                        
+
     async def remove_role_from_all_members(self, guild: discord.Guild, role: discord.Role) -> None:
         """
         Removes a specified role from all members who have opted in to the seasonal role, in a guild.
@@ -92,7 +95,9 @@ class RoleManager:
                     await member.remove_roles(role)
                     logger.debug(f"Removed role {role.name} from {member.name} in {guild.name}")
                 except discord.Forbidden:
-                    logger.error(f"Permission error when trying to remove role from member {member.name} in {guild.name}")
+                    logger.error(
+                        f"Permission error when trying to remove role from member {member.name} in {guild.name}"
+                    )
 
     async def delete_role_from_guild(self, guild: discord.Guild, role: discord.Role) -> None:
         """
@@ -120,4 +125,6 @@ class RoleManager:
             except Exception as e:
                 logger.error(f"Error setting position of role '{role.name}' in guild '{guild.name}': {e}")
         else:
-            logger.warning(f"Bot does not have sufficient role hierarchy to set the role position in guild '{guild.name}'.")
+            logger.warning(
+                f"Bot does not have sufficient role hierarchy to set the role position in guild '{guild.name}'."
+            )

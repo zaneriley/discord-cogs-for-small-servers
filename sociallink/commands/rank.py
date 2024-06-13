@@ -3,6 +3,7 @@ import random
 
 logger = logging.getLogger(__name__)
 
+
 class RankManager:
     def __init__(self, config):
         self.config = config
@@ -127,5 +128,3 @@ class RankManager:
 
     def get_rank_up_message(self) -> str:
         return random.choice(self.rank_up_messages)  # noqa: S311
-
-

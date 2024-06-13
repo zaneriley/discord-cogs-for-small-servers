@@ -1,4 +1,3 @@
-
 import logging
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -7,8 +6,6 @@ from typing import ClassVar
 
 import pandas as pd
 
-from sociallink.services.events import Events, event_bus
-
 logger = logging.getLogger(__name__)
 
 # Log a csv to the root of this cog's directory
@@ -16,6 +13,7 @@ current_directory = Path(__file__).resolve().parent.parent
 metrics_directory = current_directory / "metrics"
 logger.info(f"Metrics directory: {metrics_directory}")
 metrics_directory.mkdir(parents=True, exist_ok=True)
+
 
 class MetricsTracker:
     metrics: ClassVar[defaultdict] = defaultdict(list)
@@ -38,7 +36,6 @@ class MetricsTracker:
     def calculate_metrics(self):
         if not self.metrics_enabled:
             return False, "Metrics are not enabled."
-
 
     @classmethod
     async def log_event(cls, event_type, details):

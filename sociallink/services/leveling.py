@@ -27,18 +27,17 @@ class LevelManager(Observer):
         self.event_bus.events[Events.ON_MESSAGE_MENTION].append(self.handle_link)
         self.event_bus.events[Events.ON_MESSAGE_QUOTE].append(self.handle_link)
 
-
     @classmethod
     def get_level_up_message(cls, level, max_level, user):
         user = user.display_name
         level_1_messages = [
             "A new bond has been formed!",
             "A new path has opened up before you.",
-            "Feels like a bond is forming..."
+            "Feels like a bond is forming...",
         ]
 
         other_level_messages = [
-            f"Your bond has grown stronger!",
+            "Your bond has grown stronger!",
             "Your relationship has reached a new level of trust!",
             "Your connection has deepened, unlocking new potential!",
             "Your bond has evolved, revealing new paths ahead!",
@@ -62,17 +61,11 @@ class LevelManager(Observer):
 
     @classmethod
     def next_level_messages(cls, level, max_level, user):
-        new_level_far = [
-            f"I don't think my bond with {user} will deepen just yet..."
-        ]
+        new_level_far = [f"I don't think my bond with {user} will deepen just yet..."]
 
-        new_level_close= [
-            f"I feel like my bond with {user} will grow stronger soon..."
-        ]
+        new_level_close = [f"I feel like my bond with {user} will grow stronger soon..."]
 
-        max_level_read = [
-            f"I have a strong bond with {user}"
-        ]
+        max_level_read = [f"I have a strong bond with {user}"]
 
         if level == 1:
             return random.choice(new_level_far)  # noqa: S311
@@ -138,7 +131,6 @@ class LevelManager(Observer):
             event_type = kwargs.get("event_type")
             channel_id = kwargs.get("channel_id")
             score_increment = kwargs.get("points")
-
 
             user1_id_str = str(user1.id)
             user2_id_str = str(user2.id)
@@ -207,14 +199,12 @@ class LevelManager(Observer):
         logger.debug("Entered handle_level_up with args: %s, kwargs: %s", args, kwargs)
         max_level = await config.max_levels()
         try:
-            
             logger.debug("Received event %s", kwargs)
             user_1 = kwargs.get("user_1")
             user_2 = kwargs.get("user_2")
             level = kwargs.get("level")
             stars = kwargs.get("stars")
             channel_id = kwargs.get("channel_id")
-            
 
             user_1_id_str = str(user_1.id)
             user_2_id_str = str(user_2.id)
@@ -222,26 +212,29 @@ class LevelManager(Observer):
             if not user_1_id_str or not user_2_id_str:
                 logger.error("One or both users not found.")
                 return
-            
+
             # Fetch the channel object
             channel = bot.get_channel(channel_id)
             if not channel:
                 logger.error("Channel with ID %s not found.", channel_id)
                 return
-            
+
             # Fetch journal entries for both users
             user_1_data = await config.user(user_1).all()
             user_2_data = await config.user(user_2).all()
 
-
             # Get the latest journal entry for each user
             user_1_latest_journal = (
-                sorted(user_1_data.get("journal", []), key=lambda x: x["timestamp"], reverse=True)[0].get("description", "")
+                sorted(user_1_data.get("journal", []), key=lambda x: x["timestamp"], reverse=True)[0].get(
+                    "description", ""
+                )
                 if user_1_data.get("journal")
                 else ""
             )
             user_2_latest_journal = (
-                sorted(user_2_data.get("journal", []), key=lambda x: x["timestamp"], reverse=True)[0].get("description", "")
+                sorted(user_2_data.get("journal", []), key=lambda x: x["timestamp"], reverse=True)[0].get(
+                    "description", ""
+                )
                 if user_2_data.get("journal")
                 else ""
             )
@@ -266,23 +259,17 @@ class LevelManager(Observer):
             level_up_message_user_1 = LevelManager.get_level_up_message(level, max_level, user_2)
             level_up_message_user_2 = LevelManager.get_level_up_message(level, max_level, user_1)
 
-
             # Send the initial message with both embeds to the channel
-            await channel.send(
-                content=f"## 𝙍𝘼𝙉𝙆 𝙐𝙋\n\n",
-                embeds=[embed_for_user_2, embed_for_user_1]
-            )
+            await channel.send(content="## 𝙍𝘼𝙉𝙆 𝙐𝙋\n\n", embeds=[embed_for_user_2, embed_for_user_1])
 
             # Send the follow-up message with the level-up message to the channel
-            await channel.send(
-                content=f"{level_up_message_user_1}"
-            )
+            await channel.send(content=f"{level_up_message_user_1}")
 
             logger.info(
                 "Notified %s and %s of their increased social rank with stars in channel %s.",
                 user_1.display_name,
                 user_2.display_name,
-                channel_id
+                channel_id,
             )
         except Exception:
             logger.exception("Failed to send notification:")

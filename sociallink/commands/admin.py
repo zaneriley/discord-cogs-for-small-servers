@@ -17,7 +17,6 @@ class AdminManager(commands.Cog):
         self.confidants_manager = confidants_manager
         self.journal_manager = journal_manager
 
-
     async def show_settings(self, ctx):
         base_s_link = await self.config.base_s_link()
         level_exponent = await self.config.level_exponent()
@@ -76,14 +75,25 @@ class AdminManager(commands.Cog):
 
                         # Recalculate the aggregate score
                         other_user_data["aggregate_score"] = sum(other_user_data["scores"].values())
-                        logger.info("Recalculated aggregate score for user %s: %s", other_user_id, other_user_data["aggregate_score"])
+                        logger.info(
+                            "Recalculated aggregate score for user %s: %s",
+                            other_user_id,
+                            other_user_data["aggregate_score"],
+                        )
 
                         # Save the updated data
                         await self.config.user_from_id(other_user_id).set_raw("scores", value=other_user_data["scores"])
-                        await self.config.user_from_id(other_user_id).set_raw("aggregate_score", value=other_user_data["aggregate_score"])
+                        await self.config.user_from_id(other_user_id).set_raw(
+                            "aggregate_score", value=other_user_data["aggregate_score"]
+                        )
                         logger.info(f"Updated scores and aggregate score for user {other_user_id}")
                     except Exception as e:
-                        logger.exception("Failed to update data for user %s when removing confidant score for %s: %s", other_user_id, user_id, e)
+                        logger.exception(
+                            "Failed to update data for user %s when removing confidant score for %s: %s",
+                            other_user_id,
+                            user_id,
+                            e,
+                        )
         except Exception as e:
             logger.exception(f"Failed to iterate through all users to remove confidant scores for user {user_id}: {e}")
             await ctx.send(f"Failed to reset confidant scores for {user.display_name}. Please try again later.")
@@ -95,7 +105,9 @@ class AdminManager(commands.Cog):
     async def simulate_event(self, ctx, event_type: str, user1: discord.Member, user2: discord.Member):
         valid_events = ["voice_channel", "message_mention", "reaction"]
         if event_type not in valid_events:
-            await ctx.send(f"Invalid event type: {event_type}. Please use one of the following: {', '.join(valid_events)}")
+            await ctx.send(
+                f"Invalid event type: {event_type}. Please use one of the following: {', '.join(valid_events)}"
+            )
             return
 
         logger.info("Simulating event between %s and %s for %s.", user1.display_name, user2.display_name, event_type)
@@ -119,7 +131,9 @@ class AdminManager(commands.Cog):
 
         score_increment = event_points
         if score_increment == 0:
-            await ctx.send(f"No points configuration found for event type: {event_type}. Please check the configuration.")
+            await ctx.send(
+                f"No points configuration found for event type: {event_type}. Please check the configuration."
+            )
             logger.error(f"No points configuration found for event type: {event_type}")
             return
 
@@ -131,7 +145,9 @@ class AdminManager(commands.Cog):
             event_type,
         )
         if success:
-            await ctx.send(f"Simulated {event_type} event between {user1.display_name} and {user2.display_name}. Each received {score_increment} points.")
+            await ctx.send(
+                f"Simulated {event_type} event between {user1.display_name} and {user2.display_name}. Each received {score_increment} points."
+            )
             logger.info(message)
         else:
             await ctx.send("Failed to simulate the event due to an internal error.")
@@ -139,7 +155,6 @@ class AdminManager(commands.Cog):
 
     async def add_points(self, ctx, user: discord.Member, points: int):
         """Add arbitrary points to yourself and another user."""
-
         me = ctx.guild.get_member(ctx.message.author.id)
 
         if not me:

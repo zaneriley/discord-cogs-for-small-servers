@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 
@@ -37,6 +36,7 @@ GUILD_ID = int(os.getenv("GUILD_ID", "947277446678470696"))
 # - Add emoji handling (refactor emojilocker)
 # - They add an emoji, then they choose a level
 
+
 class SocialLink(commands.Cog):
 
     """
@@ -72,14 +72,16 @@ class SocialLink(commands.Cog):
         self.event_bus = event_bus
         self.event_bus.set_config(self.config)
         self.event_bus.register_bot(self.bot)
-        self.rank_manager       = RankManager(self.config)
-        self.journal_manager    = JournalManager(self.config, self.event_bus)
-        self.level_manager      = LevelManager(self.bot, self.config, self.event_bus)
-        self.slink_manager      = SLinkManager(self.bot, self.config, self.event_bus)
+        self.rank_manager = RankManager(self.config)
+        self.journal_manager = JournalManager(self.config, self.event_bus)
+        self.level_manager = LevelManager(self.bot, self.config, self.event_bus)
+        self.slink_manager = SLinkManager(self.bot, self.config, self.event_bus)
         self.confidants_manager = ConfidantsManager(self.bot, self.config, self.level_manager)
-        self.listener_manager   = ListenerManager(self.config, self.event_bus)
-        self.metrics_tracker    = MetricsTracker(self.bot, self.config, self.event_bus)
-        self.admin_manager      = AdminManager(self.bot, self.config, self.level_manager, self.confidants_manager, self.journal_manager)
+        self.listener_manager = ListenerManager(self.config, self.event_bus)
+        self.metrics_tracker = MetricsTracker(self.bot, self.config, self.event_bus)
+        self.admin_manager = AdminManager(
+            self.bot, self.config, self.level_manager, self.confidants_manager, self.journal_manager
+        )
 
         # Register event listeners to fire events
         self.listener_manager = ListenerManager(self.config, self.event_bus)
@@ -95,7 +97,7 @@ class SocialLink(commands.Cog):
             "decay_interval": "daily",
             # Metrics Tracking
             "metrics_enabled": False,
-            "restrict_avatar_emojis_to_roles": None, # Initially, then set to admin roles
+            "restrict_avatar_emojis_to_roles": None,  # Initially, then set to admin roles
         }
         default_events = {
             "voice_channel": {
@@ -103,15 +105,15 @@ class SocialLink(commands.Cog):
                 "points": 10,
             },
             "message_mention": {
-                "points": 5,
+                "points": 1,
             },
             "reaction": {
-                "points": 2,
+                "points": 0.5,
             },
         }
         default_roles = {
             "role_format": "{level} - @{user}",
-            "role_icons": {}  # Icons will be set per user
+            "role_icons": {},  # Icons will be set per user
         }
         default_user = {"scores": {}, "aggregate_score": 0, "journal": [], "onboarding_sent": False}
         self.config.register_global(**default_global)
@@ -191,14 +193,17 @@ class SocialLink(commands.Cog):
     @admin.command(name="reset")
     async def reset(self, ctx, user: discord.Member):
         """Resets the social link scores, journals, and other data for a user."""
+
         def check(m):
             return m.author == ctx.author and m.channel == ctx.channel
 
-        await ctx.send(f"Are you sure you want to reset all social link data for {user.display_name}? Type `yes` to confirm or `no` to cancel.")
+        await ctx.send(
+            f"Are you sure you want to reset all social link data for {user.display_name}? Type `yes` to confirm or `no` to cancel."
+        )
 
         try:
             confirmation = await self.bot.wait_for("message", check=check, timeout=30.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await ctx.send("Reset operation timed out.")
             return
 
@@ -269,7 +274,6 @@ class SocialLink(commands.Cog):
         else:
             await ctx.send(rank_message)
 
-
     @commands.hybrid_command(name="journal", aliases=["sociallink_journal"])
     async def journal(self, ctx: commands.Context):
         """WIP: Lookback on events that increased your Confidant scores."""
@@ -314,7 +318,7 @@ class SocialLink(commands.Cog):
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         """Event listener to track voice channel activity."""
-        await self.listener_manager.on_voice_state_update(member,before,after)
+        await self.listener_manager.on_voice_state_update(member, before, after)
 
     async def _update_interaction_time(self, user_id, channel_id, end_time):
         session = self.voice_sessions[user_id]

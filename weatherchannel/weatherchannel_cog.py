@@ -29,32 +29,42 @@ class WeatherChannel(commands.Cog):
         self.weather_formatter = WeatherFormatter(WeatherGovFormatter())  # Pass an instance of WeatherGovFormatter
         self.config_manager = ConfigManager(self.guild_id, self)
         self.api_handlers = {}  # Initialize the api_handlers dictionary
-        self.forecast_task.start()
+        self.on_forecast_task_complete.start()
 
-    def on_forecast_task_complete(self, task):
-        """Schedule the next run at 6 AM Eastern or Tokyo time, whichever comes next."""
+    @tasks.loop()
+    async def on_forecast_task_complete(self):
+        """Schedule the next run at 6 AM Eastern."""
         eastern = pytz.timezone("America/New_York")
-        tokyo = pytz.timezone("Asia/Tokyo")
         now_utc = datetime.now(pytz.utc)
 
-        next_eastern_6am = (now_utc.astimezone(eastern)
-                            .replace(hour=8, minute=0, second=0, microsecond=0)
-                            .astimezone(pytz.utc))
+        # Calculate next 6 AM Eastern (or next day if past 6 AM already)
+        next_eastern_6am = (
+            now_utc.astimezone(eastern)
+            .replace(hour=8, minute=0, second=0, microsecond=0)  # 8 AM UTC is 6 AM Eastern
+            .astimezone(pytz.utc)
+        )
         if next_eastern_6am < now_utc:
             next_eastern_6am += timedelta(days=1)
 
-        # next_tokyo_6am = (now_utc.astimezone(tokyo)
-        #                 .replace(hour=8, minute=0, second=0, microsecond=0)
-        #                 .astimezone(pytz.utc))
-        # if next_tokyo_6am < now_utc:
-        #     next_tokyo_6am += timedelta(days=1)
+        # Format the next run time for readability and log the information
+        next_run_time_eastern = next_eastern_6am.astimezone(eastern).strftime("%Y-%m-%d %I:%M %p %Z")
+        logger.info(
+            "Next weather check scheduled for: %s (Eastern Time)", next_run_time_eastern
+        )
 
-        next_run_time = min(next_eastern_6am)
-        delay = (next_run_time - now_utc).total_seconds()
-        self.forecast_task.change_interval(seconds=delay)
-        self.forecast_task.restart()
+        # Sleep until scheduled time
+        delay = (next_eastern_6am - now_utc.astimezone(eastern)).total_seconds()
+        await asyncio.sleep(delay)
+
+        # Perform the forecast update task
+        await self.forecast_task()
+
+        # Immediately reschedule for precision
+        self.on_forecast_task_complete.restart()
+
 
     def cog_unload(self):
+        self.on_forecast_task_complete.cancel()
         self.forecast_task.cancel()
 
     async def fetch_weather(self, api_type, coords, city):
@@ -80,7 +90,7 @@ class WeatherChannel(commands.Cog):
 
     weather = app_commands.Group(name="weather", description="Commands related to weather information")
 
-    @weather.command(name="current", description="Get current weather information")
+    @weather.command(name="today", description="Get current weather information")
     @app_commands.describe(location="Location to get weather information for")
     @app_commands.choices(
         location=[
@@ -92,27 +102,40 @@ class WeatherChannel(commands.Cog):
             app_commands.Choice(name="Everywhere", value="Everywhere"),
         ]
     )
-    async def forecast(self, ctx, location: str | None = None):
+    async def weather_now(self, interaction: discord.Interaction, location: str | None = None):
         """Get the current weather!"""
-        current_time = int(datetime.now(tz=UTC).timestamp())  # Get current Unix timestamp
-        timestamp = f"<t:{current_time}:F>"  # Format for Discord, eg. Sunday, June 2, 2024 at 9:57 PM
+        current_time = int(datetime.now(tz=UTC).timestamp())
 
-        if location == "Everywhere" or location is None:
-            default_locations = await self.config_manager.get_default_locations(self.guild_id)
-            if not default_locations:
-                await ctx.send("No default locations set for this guild.")
-                return
-            forecasts = [
-                await self.fetch_weather(api_type, coords, city)
-                for city, (api_type, coords) in default_locations.items()
-            ]
-            await ctx.send(f"{timestamp}\n```{forecasts}```")
+        # Retrieve default locations
+        default_locations = await self.config_manager.get_default_locations(self.guild_id)
+
+        if location == "Everywhere":
+            # Fetch weather for all locations
+            forecasts = await asyncio.gather(
+                *[self.fetch_weather(api_type, coords, city) for city, (api_type, coords) in default_locations.items()]
+            )
+            keys = ["ᴄɪᴛʏ", "ʜ°ᴄ", "ʟ°ᴄ", "ᴘʀᴇᴄɪᴘ"]
+        elif location in default_locations:
+            # Fetch weather for the specified location
+            api_type, coords = default_locations[location]
+            single_forecast = await self.fetch_weather(api_type, coords, location)
+            forecasts = [single_forecast]  # Wrap it in a list to use the same formatting logic
+            keys = ["ᴄɪᴛʏ", "ᴄᴏɴᴅ", "ʜ°ᴄ", "ʟ°ᴄ", "ᴘʀᴇᴄɪᴘ"]
         else:
-            # Assume default API type and coordinates format for direct location queries
-            formatted_data = await self.fetch_weather("weather-gov", location.split(","), location)
-            await ctx.send(f"{timestamp}\n```{formatted_data}```")
+            await interaction.response.send_message("Location not recognized or not provided. Please use a predefined location or 'Everywhere'.", ephemeral=True)
+            return
 
-    @tasks.loop(hours=1, after="on_forecast_task_complete")
+        # Format the data
+        table_data = [forecast for forecast in forecasts if isinstance(forecast, dict)]
+        alignments = ["left"] * len(keys)
+        widths = get_max_widths(table_data, keys)
+        header = format_row({k: k for k in keys}, keys, widths, alignments)
+        rows = [format_row(row, keys, widths, alignments) for row in table_data]
+        table_string = header + "\n" + "\n".join(rows)
+
+        # Send the formatted data
+        await interaction.response.send_message(f"```{table_string}```")
+
     async def forecast_task(self):
         current_time = int(datetime.now(tz=UTC).timestamp())
 

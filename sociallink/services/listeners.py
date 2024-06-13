@@ -28,10 +28,14 @@ class ListenerManager(commands.Cog):
         channel_id = message.channel.id
         if message.attachments:
             self.event_bus.fire(Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT, message=message, channel_id=channel_id)
-            logger.debug("Received event %s, message: %s, channel_id: %s", Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT, message, channel_id)
+            logger.debug(
+                "Received event %s, message: %s, channel_id: %s",
+                Events.ON_MESSAGE_WITH_MEDIA_ATTACHENT,
+                message,
+                channel_id,
+            )
             await MetricsTracker.log_event("message_with_media_attachment", {"message_id": message.id})  # Log the event
         if message.reference is not None:
-            
             # note that message.reference.resolved can be either a discord.Message or discord.DeletedReferencedMessage object.
             # If it's a discord.DeletedReferencedMessage object, the author attribute will not be available,
             # so we check the type of message.reference.resolved before accessing the author attribute.
@@ -43,19 +47,48 @@ class ListenerManager(commands.Cog):
 
             points = await self.config.guild(message.guild).get_raw("message_mention", "points")
 
-            self.event_bus.fire(Events.ON_MESSAGE_QUOTE,  message=message, author=message.author, points=points, confidant=replied_to, channel_id=message.channel.id)
-            logger.debug("Received event %s, message: %s, replied_to: %s, channel_id: %s", Events.ON_MESSAGE_QUOTE, message, replied_to, channel_id)
-            await MetricsTracker.log_event("message_quote", {"message_id": message.id, "replied_to_id": replied_to.id if replied_to else None})  # Log the event
+            self.event_bus.fire(
+                Events.ON_MESSAGE_QUOTE,
+                message=message,
+                author=message.author,
+                points=points,
+                confidant=replied_to,
+                channel_id=message.channel.id,
+            )
+            logger.debug(
+                "Received event %s, message: %s, replied_to: %s, channel_id: %s",
+                Events.ON_MESSAGE_QUOTE,
+                message,
+                replied_to,
+                channel_id,
+            )
+            await MetricsTracker.log_event(
+                "message_quote", {"message_id": message.id, "replied_to_id": replied_to.id if replied_to else None}
+            )  # Log the event
         if message.mentions:
             for member in message.mentions:
                 if member == message.author:
                     continue
                 points = await self.config.guild(message.guild).get_raw("message_mention", "points")
 
-                self.event_bus.fire(Events.ON_MESSAGE_MENTION, message=message, author=message.author,confidant=member, points=points,channel_id=message.channel.id)
-                logger.debug("Received event %s, message: %s, mentioned_member: %s, channel_id: %s", Events.ON_MESSAGE_MENTION, message, member, channel_id)
-                await MetricsTracker.log_event("message_mention", {"message_id": message.id, "mentioned_member_id": member.id})  # Log the event
-
+                self.event_bus.fire(
+                    Events.ON_MESSAGE_MENTION,
+                    message=message,
+                    author=message.author,
+                    confidant=member,
+                    points=points,
+                    channel_id=message.channel.id,
+                )
+                logger.debug(
+                    "Received event %s, message: %s, mentioned_member: %s, channel_id: %s",
+                    Events.ON_MESSAGE_MENTION,
+                    message,
+                    member,
+                    channel_id,
+                )
+                await MetricsTracker.log_event(
+                    "message_mention", {"message_id": message.id, "mentioned_member_id": member.id}
+                )  # Log the event
 
     # Voice channel listeners
     async def on_voice_state_update(self, member, before, after):
@@ -71,7 +104,9 @@ class ListenerManager(commands.Cog):
             logger.debug(
                 "Received event %s, member: %s, channel: %s", Events.ON_VOICE_CHANNEL_LEAVE, member, before.channel
             )
-            await MetricsTracker.log_event("voice_channel_leave", {"user_id": member.id, "channel_id": before.channel.id})
+            await MetricsTracker.log_event(
+                "voice_channel_leave", {"user_id": member.id, "channel_id": before.channel.id}
+            )
 
     # Member profile listeners
     async def on_member_update(self, before, after):

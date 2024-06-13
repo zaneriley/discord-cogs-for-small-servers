@@ -1,17 +1,18 @@
+import asyncio
 import logging
 from pathlib import Path
-import asyncio
+
 import discord
 
-from sociallink.services.events import Events, event_bus
+from sociallink.services.events import Events
 from utilities.image_utils import get_image_handler
 
 logger = logging.getLogger(__name__)
 
+
 # Below code is incomplete, does not yet function as intended.
 # init first level -> create roles for both users -> ask to upload emojis -> associate emoji with level 1 and 10.
 class SLinkManager:
-
     # This is a hotfix for the eventbus pattern not working as intended
     # using the decorator pattern causes conflicts between the instance and the class
     # But refactoring would involve updating all event listeners in /sociallink
@@ -31,18 +32,17 @@ class SLinkManager:
         self.level_handlers = {
             1: self.handle_level_1,
         }
-        self.role_icons = None   # Will be dynamically fetched per user
+        self.role_icons = None  # Will be dynamically fetched per user
         self.guild_id = self.config.get_raw("guild_id")
         self.guild = self.bot.get_guild(self.guild_id)
 
-
         # Manual Event Subscription
-        wrapped_handler = self._wrap_handler(self, self.handle_level_up) 
-        event_bus.events[Events.ON_LEVEL_UP].append(wrapped_handler) 
+        wrapped_handler = self._wrap_handler(self, self.handle_level_up)
+        event_bus.events[Events.ON_LEVEL_UP].append(wrapped_handler)
 
     async def handle_level_up(self, *args, **kwargs):
         logger.debug("Entered handle_level_up with args: %s, kwargs: %s", args, kwargs)
-        
+
         ctx = kwargs.get("ctx")
         config = kwargs.get("config")
         max_levels = await config.max_levels()
@@ -59,7 +59,7 @@ class SLinkManager:
 
         role_format = await self.config.guild(guild).role_format()
         logger.debug("Role format: %s with confidant display name %s", role_format, confidant)
-    
+
         role_name_user1 = role_format.format(user=user.nick if user.nick else user.name, level=level)
         role_name_user2 = role_format.format(user=confidant.nick if confidant.nick else confidant.name, level=level)
 
@@ -81,7 +81,7 @@ class SLinkManager:
 
         if not onboarding_sent_user:
             await self.send_onboarding_message(user)
-            await self.config.user(user).onboarding_sent.set(True)   # noqa: FBT003
+            await self.config.user(user).onboarding_sent.set(True)  # noqa: FBT003
 
         if not onboarding_sent_confidant:
             await self.send_onboarding_message(confidant)
@@ -102,7 +102,6 @@ class SLinkManager:
         role_user1 = discord.utils.get(guild.roles, name=role_name_user1)
         role_user2 = discord.utils.get(guild.roles, name=role_name_user2)
 
-
         self.send_onboarding_message(user)
         # self.send_onboarding_message(confidant)
         # restricted_emojis = []
@@ -113,29 +112,28 @@ class SLinkManager:
         # reward_message = f"These {name} emojis are now available for use in this server: {' '.join(restricted_emojis)}"
         # return (reward_message, restricted_emojis)
 
-
     async def send_onboarding_message(self, user: discord.User):
         messages = [
-"""
+            """
 ## ⠀   ⠀   _A new bond has been formed..._
 """,
-"""_⠀⠀  ⠀⠀⠀Throughout your journey,         ⠀⠀
+            """_⠀⠀  ⠀⠀⠀Throughout your journey,         ⠀⠀
 ⠀⠀⠀⠀⠀you will encounter individuals      ⠀⠀
 ⠀⠀⠀⠀who can become your Confidants.     ⠀⠀
 ⠀⠀These bonds are crucial for your growth._⠀
 """,
-"""_
+            """_
 ⠀⠀⠀⠀By spending time **in the server** ⠀⠀
 ⠀⠀⠀⠀  with these individuals you can     ⠀⠀
 ⠀⠀⠀  ⠀ deepen your relationship and
 ⠀⠀ ⠀ ⠀ increase your Confidant rank._
 """,
-"""
+            """
 _
 ⠀⠀To check your status with your Confidants, ⠀⠀
 ⠀type `/confidants` to see your connections._
 """,
-"""
+            """
 \n⠀
 > **Please note:** This is an early prototype of a game.
 > Not all functionality may exist, it may not even be fun, 
@@ -144,7 +142,7 @@ _
 > See post for more info: https://discord.com/channels/947277446678470696/1092080357286883438
 > Feedback, ideas or other contributions are welcome.
 — Rye
-"""
+""",
         ]
 
         for message in messages:
@@ -159,7 +157,7 @@ _
                     await user.send(message)
                 except discord.Forbidden:
                     logger.exception("Failed to send message to %s", user.name)
-                except discord.HTTPException as e:
+                except discord.HTTPException:
                     logger.exception("Failed to send message to %s", user.name)
 
     # TODO: This should be in discord_utils but due to a circular dependency issue, it's here
@@ -181,7 +179,7 @@ _
         if role:
             # If the role exists, update it with the new icon
             try:
-                await role.edit(display_icon=image_data, color=discord.Color.blurple(),reason="Updating role icon")
+                await role.edit(display_icon=image_data, color=discord.Color.blurple(), reason="Updating role icon")
                 logger.info("Updated role %s with new icon.", role.name)
             except discord.Forbidden:
                 logger.exception("Bot does not have permission to edit roles.")
@@ -190,7 +188,12 @@ _
         else:
             # If the role does not exist, create it with the icon
             try:
-                role = await guild.create_role(name=role_name, display_icon=image_data, color=discord.Color.blurple(), reason="Creating new role with icon")
+                role = await guild.create_role(
+                    name=role_name,
+                    display_icon=image_data,
+                    color=discord.Color.blurple(),
+                    reason="Creating new role with icon",
+                )
                 logger.info("Created new role %s with a new icon.", role.name)
             except discord.Forbidden:
                 logger.exception("Bot does not have permission to create roles.")
@@ -215,11 +218,10 @@ _
             # Create or update the role with the default icon
             await self.create_or_update_role(guild, role_name, default_icon_path)
 
-
     async def create_confidant_emoji():
         pass
 
-    async def fetch_confidants_emojis(confidant,level):
+    async def fetch_confidants_emojis(confidant, level):
         return
 
     async def add_emoji_to_role(self, ctx, emoji: discord.Emoji, level: int):

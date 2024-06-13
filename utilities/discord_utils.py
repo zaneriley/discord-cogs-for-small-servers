@@ -17,6 +17,7 @@ DEFAULT_THREAD_NAME = "Hello World Thread"
 DEFAULT_THREAD_MESSAGE = "This is the first message in the thread."
 THREAD_CREATION_ERROR = "An error occurred while creating the thread."
 
+
 async def is_server_owner(bot, user_id: int) -> bool:
     """
     Checks if the given user ID belongs to a server owner.
@@ -36,6 +37,7 @@ async def is_server_owner(bot, user_id: int) -> bool:
         return False
 
     return any(guild.owner_id == user_id for guild in bot.guilds)
+
 
 async def create_discord_thread(
     ctx: Context,
@@ -107,9 +109,7 @@ ROLE_NOT_FOUND_ERROR = "The provided role ID was not found."
 CHANNEL_TYPE_ERROR = "Provided channel is not a text channel."
 
 
-async def send_discord_message(
-    ctx: Context, channel_id: int, message_content: str, role_id: int | None = None
-) -> str:
+async def send_discord_message(ctx: Context, channel_id: int, message_content: str, role_id: int | None = None) -> str:
     """
     Sends a scheduled message to a specified channel.
     If a role_id is provided, it mentions the role in the message.
@@ -314,7 +314,9 @@ async def create_or_update_role(guild: discord.Guild, role_name: str, image_sour
     else:
         # If the role does not exist, create it with the icon
         try:
-            role = await guild.create_role(name=role_name, display_icon=image_data, reason="Creating new role with icon")
+            role = await guild.create_role(
+                name=role_name, display_icon=image_data, reason="Creating new role with icon"
+            )
             logger.info("Created new role %s with a new icon.", role.name)
         except discord.Forbidden:
             logger.exception("Bot does not have permission to create roles.")
