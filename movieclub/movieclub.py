@@ -105,38 +105,36 @@ class MovieClub(commands.Cog):
     @commands.guild_only()
     @commands.bot_has_permissions(embed_links=True)
     @commands.mod_or_permissions(manage_messages=True)
-    @poll.group()
+    @poll.command()
     async def date(self, ctx, action: str, month: str = None):
-        """Date poll commands. Use subcommands or 'start'/'end' actions."""
-        if ctx.invoked_subcommand is None:
-            target_role = await self.config.guild(ctx.guild).target_role()
+        target_role = await self.config.guild(ctx.guild).target_role()
 
-            if action.lower() == "start":
-                try:
-                    if "date_poll" in self.active_polls.keys():
-                        await ctx.send("A date poll is already active.")
-                        return
-                    else:
-                        poll = DatePoll(self.bot, self.config, ctx.guild)
-                        await poll.write_poll_to_config()
-                        await poll.start_poll(ctx, action, month)
-                        self.active_polls["date_poll"] = poll  # add poll to active polls using new poll_id
-                        await ctx.send("A date poll is activated.")
-
-                except AttributeError:
-                    await ctx.send(
-                        "Error: Unable to initialize date poll. For some reason, the Poll object could not be created."
-                    )
-                    logging.exception("Failed to initialize date poll.")
-
-            elif action.lower() == "end":
-                if "date_poll" in self.active_polls.keys():  # check if poll is in active polls using new poll_id
-                    await self.active_polls["date_poll"].end_poll(ctx)
-                    del self.active_polls["date_poll"]
+        if action.lower() == "start":
+            try:
+                if "date_poll" in self.active_polls.keys():
+                    await ctx.send("A date poll is already active.")
+                    return
                 else:
-                    await ctx.send("No active date poll in this channel.")
+                    poll = DatePoll(self.bot, self.config, ctx.guild)
+                    await poll.write_poll_to_config()
+                    await poll.start_poll(ctx, action, month)
+                    self.active_polls["date_poll"] = poll  # add poll to active polls using new poll_id
+                    await ctx.send("A date poll is activated.")
+
+            except AttributeError:
+                await ctx.send(
+                    "Error: Unable to initialize date poll. For some reason, the Poll object could not be created."
+                )
+                logging.exception("Failed to initialize date poll.")
+
+        elif action.lower() == "end":
+            if "date_poll" in self.active_polls.keys():  # check if poll is in active polls using new poll_id
+                await self.active_polls["date_poll"].end_poll(ctx)
+                del self.active_polls["date_poll"]
             else:
-                await ctx.send('Invalid action. Use "start" or "end".')
+                await ctx.send("No active date poll in this channel.")
+        else:
+            await ctx.send('Invalid action. Use "start" or "end".')
 
     @date.command(name="votes")
     async def date_poll_votes(self, ctx):
