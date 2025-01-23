@@ -1,7 +1,7 @@
-import logging
 import datetime
+import logging
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from typing import Optional
 
 from ..utilities.discord_utils import send_discord_message
 
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class MessageScheduler:
-    def __init__(self, scheduler: Optional[AsyncIOScheduler] = None):
+    def __init__(self, scheduler: AsyncIOScheduler | None = None):
         """
         Initialize the MessageScheduler with an optional scheduler.
         """
@@ -17,9 +17,7 @@ class MessageScheduler:
         self.scheduler.start()
         logger.info("MessageScheduler initialized.")
 
-    async def _scheduled_message_job(
-        self, channel_id: int, message_content: str, role_id: Optional[int] = None
-    ):
+    async def _scheduled_message_job(self, channel_id: int, message_content: str, role_id: int | None = None):
         """
         Internal job to be scheduled for sending the message.
         """
@@ -28,11 +26,9 @@ class MessageScheduler:
             await send_discord_message(channel_id, formatted_message)
             logger.info(f"Sent scheduled message to channel {channel_id}.")
         except Exception as e:
-            logger.error(
-                f"Failed to send scheduled message to channel {channel_id}: {e}"
-            )
+            logger.error(f"Failed to send scheduled message to channel {channel_id}: {e}")
 
-    def _format_message(self, message: str, role_id: Optional[int] = None) -> str:
+    def _format_message(self, message: str, role_id: int | None = None) -> str:
         """
         Format the message with role mention if provided.
         """
@@ -46,15 +42,13 @@ class MessageScheduler:
         channel_id: int,
         trigger_time: datetime.datetime,
         message_content: str,
-        role_id: Optional[int] = None,
+        role_id: int | None = None,
     ):
         """
         Schedule a message to be sent to the specified channel at the given time.
         """
         if trigger_time <= datetime.datetime.now():
-            logger.error(
-                "Provided trigger_time is in the past. Cannot schedule message."
-            )
+            logger.error("Provided trigger_time is in the past. Cannot schedule message.")
             raise ValueError("Please provide a future time for scheduling the message.")
 
         try:
@@ -64,11 +58,7 @@ class MessageScheduler:
                 run_date=trigger_time,
                 args=(channel_id, message_content, role_id),
             )
-            logger.info(
-                f"Scheduled message for channel {channel_id} at {trigger_time}."
-            )
+            logger.info(f"Scheduled message for channel {channel_id} at {trigger_time}.")
         except Exception as e:
-            logger.error(
-                f"Failed to schedule message for channel {channel_id} at {trigger_time}: {e}"
-            )
+            logger.error(f"Failed to schedule message for channel {channel_id} at {trigger_time}: {e}")
             raise

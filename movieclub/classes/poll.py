@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 
-from discord.errors import NotFound, HTTPException
+from discord.errors import HTTPException, NotFound
 
 
 class Poll(ABC):
@@ -42,55 +42,37 @@ class Poll(ABC):
         return await self.config.guild(self.guild).polls.get_raw(self.poll_id, "votes")
 
     async def set_votes(self, votes):
-        await self.config.guild(self.guild).polls.set_raw(
-            self.poll_id, "votes", value=votes
-        )
+        await self.config.guild(self.guild).polls.set_raw(self.poll_id, "votes", value=votes)
 
     async def get_user_votes(self):
-        return await self.config.guild(self.guild).polls.get_raw(
-            self.poll_id, "user_votes"
-        )
+        return await self.config.guild(self.guild).polls.get_raw(self.poll_id, "user_votes")
 
     async def set_user_votes(self, user_votes):
-        await self.config.guild(self.guild).polls.set_raw(
-            self.poll_id, "user_votes", value=user_votes
-        )
+        await self.config.guild(self.guild).polls.set_raw(self.poll_id, "user_votes", value=user_votes)
 
     async def get_target_role(self):
         return await self.config.guild(self.guild).target_role()
 
     async def get_message_id(self):
-        return await self.config.guild(self.guild).polls.get_raw(
-            self.poll_id, "poll_message_id"
-        )
+        return await self.config.guild(self.guild).polls.get_raw(self.poll_id, "poll_message_id")
 
     async def set_message_id(self, new_id):
-        await self.config.guild(self.guild).polls.set_raw(
-            self.poll_id, "poll_message_id", value=new_id
-        )
+        await self.config.guild(self.guild).polls.set_raw(self.poll_id, "poll_message_id", value=new_id)
 
     async def get_poll_channel_id(self):
-        return await self.config.guild(self.guild).polls.get_raw(
-            self.poll_id, "poll_channel_id"
-        )
+        return await self.config.guild(self.guild).polls.get_raw(self.poll_id, "poll_channel_id")
 
     async def set_poll_channel_id(self, new_id):
-        await self.config.guild(self.guild).polls.set_raw(
-            self.poll_id, "poll_channel_id", value=new_id
-        )
+        await self.config.guild(self.guild).polls.set_raw(self.poll_id, "poll_channel_id", value=new_id)
 
     async def get_buttons(self):
-        return await self.config.guild(self.guild).polls.get_raw(
-            self.poll_id, "buttons"
-        )
+        return await self.config.guild(self.guild).polls.get_raw(self.poll_id, "buttons")
 
     async def add_buttons(self, buttons):
         existing_buttons = await self.get_buttons()
         for button in buttons:
             existing_buttons.append(button)
-        await self.config.guild(self.guild).polls.set_raw(
-            self.poll_id, "buttons", value=buttons
-        )
+        await self.config.guild(self.guild).polls.set_raw(self.poll_id, "buttons", value=buttons)
 
     @abstractmethod
     def start_poll(self):
@@ -126,9 +108,7 @@ class Poll(ABC):
                     await poll_message.edit(view=view)
                     logging.debug("Message edited.")
                 except HTTPException as e:
-                    logging.debug(
-                        f"Unable to edit the message due to {e}. Setting the poll to inactive."
-                    )
+                    logging.debug(f"Unable to edit the message due to {e}. Setting the poll to inactive.")
                     await self.set_active_status(False)
         else:
             logging.debug("The poll is inactive. Skipping the refresh operation.")
@@ -140,9 +120,7 @@ class Poll(ABC):
     async def _fetch_poll_message(self):
         channel_id = await self.get_poll_channel_id()
         message_id = await self.get_message_id()
-        logging.debug(
-            f"Fetching message with id {message_id} from channel {channel_id}"
-        )
+        logging.debug(f"Fetching message with id {message_id} from channel {channel_id}")
         # Fetches and returns the message related to the poll.
         channel = self.bot.get_channel(channel_id)
         try:

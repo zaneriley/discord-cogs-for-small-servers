@@ -1,11 +1,12 @@
-import requests
-from bs4 import BeautifulSoup
 import json
 import logging
-from typing import List, Dict, Union, Optional, Any
-import unicodedata
 import re
-from urllib.parse import urlparse, urlunparse, quote
+import unicodedata
+from typing import Any
+from urllib.parse import quote, urlparse, urlunparse
+
+import requests
+from bs4 import BeautifulSoup
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,13 +25,11 @@ def construct_search_url(movie_title: str) -> str:
         logging.info(f"Successfully constructed search URL for {search_url}.")
         return search_url
     except Exception as e:
-        logger.error(
-            f"Failed to construct the search URL for {movie_title} due to: {str(e)}"
-        )
+        logger.error(f"Failed to construct the search URL for {movie_title} due to: {e!s}")
         return None
 
 
-def scrape_search_page(search_url: str) -> Optional[BeautifulSoup]:
+def scrape_search_page(search_url: str) -> BeautifulSoup | None:
     try:
         response = requests.get(search_url)
         response.raise_for_status()
@@ -41,29 +40,23 @@ def scrape_search_page(search_url: str) -> Optional[BeautifulSoup]:
         return None
 
 
-def fetch_search_results(movie_title: str) -> List[BeautifulSoup]:
+def fetch_search_results(movie_title: str) -> list[BeautifulSoup]:
     try:
         search_url = construct_search_url(movie_title)
         soup = scrape_search_page(search_url)
         results = soup.find_all("li") if soup else []
         if results:
-            logger.info(
-                f"Successfully fetched {len(results)} search results for {movie_title}."
-            )
-            logger.info(
-                f"First result content: {results[0].prettify() if results else 'None'}"
-            )
+            logger.info(f"Successfully fetched {len(results)} search results for {movie_title}.")
+            logger.info(f"First result content: {results[0].prettify() if results else 'None'}")
         else:
             logger.warning(f"No search results found for {movie_title}.")
         return results
     except Exception as e:
-        logger.error(
-            f"Failed to fetch search results for {movie_title} due to: {str(e)}"
-        )
+        logger.error(f"Failed to fetch search results for {movie_title} due to: {e!s}")
         return []
 
 
-def select_best_search_result(search_results: List[BeautifulSoup], film: str) -> str:
+def select_best_search_result(search_results: list[BeautifulSoup], film: str) -> str:
     try:
         film = film.lower()
         # Check each search result
@@ -72,11 +65,7 @@ def select_best_search_result(search_results: List[BeautifulSoup], film: str) ->
 
             if title_element:
                 # Get movie title excluding the 'small' tag (year)
-                title = (
-                    "".join(title_element.find_all(text=True, recursive=False))
-                    .strip()
-                    .lower()
-                )
+                title = "".join(title_element.find_all(text=True, recursive=False)).strip().lower()
                 logger.info(f"Scraped title: {title}")
                 url = title_element.get("href", "")
                 url = f"https://letterboxd.com{url}"
@@ -89,11 +78,11 @@ def select_best_search_result(search_results: List[BeautifulSoup], film: str) ->
         logger.error(f"No suitable results found for film: {film}")
         return None
     except Exception as e:
-        logger.error(f"Failed to select best search result due to: {str(e)}")
+        logger.error(f"Failed to select best search result due to: {e!s}")
         return None
 
 
-def get_validated_base_url(film: str, year: Optional[str] = None) -> str:
+def get_validated_base_url(film: str, year: str | None = None) -> str:
     film = film.lower()
     base_url = f"https://letterboxd.com/film/{film}"
     url_with_year = f"{base_url}-{year}" if year else None
@@ -113,9 +102,7 @@ def get_validated_base_url(film: str, year: Optional[str] = None) -> str:
         if response.status_code == 200:
             return url_without_year
 
-    raise ValueError(
-        f"Invalid movie or year: {response.status_code} {response.reason} for URL: {response.url}"
-    )
+    raise ValueError(f"Invalid movie or year: {response.status_code} {response.reason} for URL: {response.url}")
 
 
 def construct_url(base_url: str, url_type: str) -> str:
@@ -126,12 +113,10 @@ def construct_url(base_url: str, url_type: str) -> str:
     elif url_type == "stats":
         return f"{base_url}/likes/"
     else:
-        raise ValueError(
-            f"Invalid url_type: {url_type}. Expected 'info', 'reviews', or 'stats'."
-        )
+        raise ValueError(f"Invalid url_type: {url_type}. Expected 'info', 'reviews', or 'stats'.")
 
 
-def fetch_reviews(url: str) -> Optional[str]:
+def fetch_reviews(url: str) -> str | None:
     """Fetches the reviews from the constructed URL."""
     try:
         response = requests.get(url)
@@ -142,18 +127,14 @@ def fetch_reviews(url: str) -> Optional[str]:
         return None
 
 
-def parse_review_data(page_content: str) -> List[Dict[str, str]]:
+def parse_review_data(page_content: str) -> list[dict[str, str]]:
     soup = BeautifulSoup(page_content, "html.parser")
     reviews = []
     for review in soup.select("li.film-detail"):
         reviewer = review.select_one("strong.name")
-        reviewer = (
-            unicodedata.normalize("NFC", reviewer.get_text()) if reviewer else "Unknown"
-        )
+        reviewer = unicodedata.normalize("NFC", reviewer.get_text()) if reviewer else "Unknown"
         rating = review.select_one(".rating")
-        rating = (
-            unicodedata.normalize("NFC", rating.get_text()) if rating else "No rating"
-        )
+        rating = unicodedata.normalize("NFC", rating.get_text()) if rating else "No rating"
         date = review.select_one("span._nobr")
         date = date.get_text() if date else "Unknown date"
         # Fetching individual paragraphs and joining them with newline characters
@@ -165,11 +146,7 @@ def parse_review_data(page_content: str) -> List[Dict[str, str]]:
         link = review.find("a", class_="context")["href"]
         link = f"https://letterboxd.com{link}" if link else "No link"
         user_profile_link = review.find("a", class_="avatar")["href"]
-        user_profile_link = (
-            f"https://letterboxd.com{user_profile_link}"
-            if user_profile_link
-            else "No link"
-        )
+        user_profile_link = f"https://letterboxd.com{user_profile_link}" if user_profile_link else "No link"
 
         # Remove json of likes from reviews
         reviews.append(
@@ -198,35 +175,21 @@ def fetch_movie_details(film: str, year: str = None):
         try:
             url = response.url  # Capture the correct URL from the response
             parsed_url = urlparse(url)
-            cleaned_path = "/".join(
-                segment for segment in parsed_url.path.split("/") if segment
-            )
+            cleaned_path = "/".join(segment for segment in parsed_url.path.split("/") if segment)
             url = urlunparse(parsed_url._replace(path=cleaned_path))
 
             soup = BeautifulSoup(response.content, "html.parser")
 
             # Get the necessary data
             title_section = soup.find("section", {"id": "featured-film-header"})
-            title = (
-                title_section.find("h1", class_="headline-1").get_text()
-                if title_section
-                else None
-            )
+            title = title_section.find("h1", class_="headline-1").get_text() if title_section else None
 
             year_of_release = (
-                soup.find("small", class_="number").find("a").text
-                if soup.find("small", class_="number")
-                else None
+                soup.find("small", class_="number").find("a").text if soup.find("small", class_="number") else None
             )
-            tagline = (
-                soup.find("h4", class_="tagline").text
-                if soup.find("h4", class_="tagline")
-                else None
-            )
+            tagline = soup.find("h4", class_="tagline").text if soup.find("h4", class_="tagline") else None
             description = (
-                soup.find("div", class_="truncate").find("p").text
-                if soup.find("div", class_="truncate")
-                else None
+                soup.find("div", class_="truncate").find("p").text if soup.find("div", class_="truncate") else None
             )
             genres = (
                 [
@@ -252,9 +215,7 @@ def fetch_movie_details(film: str, year: str = None):
             else:
                 runtime = None
 
-            trailer_link_section = soup.find(
-                "p", class_="trailer-link js-watch-panel-trailer"
-            )
+            trailer_link_section = soup.find("p", class_="trailer-link js-watch-panel-trailer")
             if trailer_link_section:
                 trailer_link_a = trailer_link_section.find("a")
                 if trailer_link_a and trailer_link_a.has_attr("href"):
@@ -277,15 +238,11 @@ def fetch_movie_details(film: str, year: str = None):
             script_tag = soup.find("script", type="application/ld+json")
             if script_tag:
                 script_text = script_tag.string
-                clean_script_text = script_text.replace("/* <![CDATA[ */", "").replace(
-                    "/* ]]> */", ""
-                )
+                clean_script_text = script_text.replace("/* <![CDATA[ */", "").replace("/* ]]> */", "")
                 script_json = json.loads(clean_script_text)
                 aggregate_rating = script_json.get("aggregateRating", {})
                 average_rating = aggregate_rating.get("ratingValue")
-                number_of_reviewers = aggregate_rating.get(
-                    "reviewCount"
-                ) or aggregate_rating.get("ratingCount")
+                number_of_reviewers = aggregate_rating.get("reviewCount") or aggregate_rating.get("ratingCount")
             else:
                 average_rating = None
                 number_of_reviewers = None
@@ -308,7 +265,7 @@ def fetch_movie_details(film: str, year: str = None):
             return movie_data
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to fetch data for {film} ({year}) due to: {str(e)}")
+            logger.error(f"Failed to fetch data for {film} ({year}) due to: {e!s}")
             return None
 
     else:
@@ -318,7 +275,7 @@ def fetch_movie_details(film: str, year: str = None):
         return None, None
 
 
-def fetch_letterboxd_details_wrapper(film: str) -> Dict[str, Union[str, Any]]:
+def fetch_letterboxd_details_wrapper(film: str) -> dict[str, str | Any]:
     try:
         logger.info(f"Fetching search results for {film} on Letterboxd...")
         results = fetch_search_results(film)
@@ -329,9 +286,7 @@ def fetch_letterboxd_details_wrapper(film: str) -> Dict[str, Union[str, Any]]:
 
         selected_url = select_best_search_result(results, film)
         if not selected_url:
-            logger.warning(
-                f"No suitable match found for {film}. There are no exact matches in the search results."
-            )
+            logger.warning(f"No suitable match found for {film}. There are no exact matches in the search results.")
             return {}
 
         movie_data = fetch_movie_details(selected_url)
@@ -346,9 +301,7 @@ def fetch_letterboxd_details_wrapper(film: str) -> Dict[str, Union[str, Any]]:
         requests.RequestException,
         Exception,
     ) as e:  # Catch and log possible network and parsing errors
-        logger.error(
-            f"An error occurred while fetching movie details for {film}: {str(e)}"
-        )
+        logger.error(f"An error occurred while fetching movie details for {film}: {e!s}")
         return {}
 
 
@@ -365,14 +318,10 @@ def main() -> None:
     ]
     for test_case in test_cases:
         film = test_case["film"]
-        year = test_case.get(
-            "year"
-        )  # Use get method to avoid KeyError if "year" key is not present
+        year = test_case.get("year")  # Use get method to avoid KeyError if "year" key is not present
         try:
             # Fetching search results and selecting the best match
-            logger.info(
-                f"Fetching search results for {film} ({year if year else ''})..."
-            )
+            logger.info(f"Fetching search results for {film} ({year if year else ''})...")
             results = fetch_search_results(film)
 
             if results:
@@ -382,49 +331,31 @@ def main() -> None:
                     logger.info(f"Fetching data for {film} ({year if year else ''})...")
                     movie_data = fetch_movie_details(selected_url)
                     if movie_data:
-                        logger.info(
-                            f"Successfully fetched data for {film} ({year if year else ''})."
-                        )
+                        logger.info(f"Successfully fetched data for {film} ({year if year else ''}).")
                         print(json.dumps(movie_data, indent=2))
                     else:
-                        logger.error(
-                            f"Failed to fetch data for {film} ({year if year else ''})."
-                        )
+                        logger.error(f"Failed to fetch data for {film} ({year if year else ''}).")
                     # Fetching and logging reviews
-                    logger.info(
-                        f"Fetching reviews for {film} ({year if year else ''})..."
-                    )
+                    logger.info(f"Fetching reviews for {film} ({year if year else ''})...")
                     review_url = construct_url(selected_url, "reviews")
                     page_content = fetch_reviews(review_url)
                     if page_content:
                         reviews = parse_review_data(page_content)
                         if reviews:
-                            logger.info(
-                                f"Successfully fetched reviews for {film} ({year if year else ''})."
-                            )
+                            logger.info(f"Successfully fetched reviews for {film} ({year if year else ''}).")
                             print(json.dumps(reviews, indent=2))
                         else:
-                            logger.warning(
-                                f"No reviews found for {film} ({year if year else ''})."
-                            )
+                            logger.warning(f"No reviews found for {film} ({year if year else ''}).")
                     else:
-                        logger.error(
-                            f"Failed to fetch reviews for {film} ({year if year else ''})."
-                        )
+                        logger.error(f"Failed to fetch reviews for {film} ({year if year else ''}).")
                 else:
-                    logger.error(
-                        f"No suitable search result selected for {film} ({year if year else ''})."
-                    )
+                    logger.error(f"No suitable search result selected for {film} ({year if year else ''}).")
                     continue
             else:
-                logger.error(
-                    f"Failed to fetch search results for {film} ({year if year else ''})."
-                )
+                logger.error(f"Failed to fetch search results for {film} ({year if year else ''}).")
                 continue
         except ValueError as e:
-            logger.error(
-                f"Failed to process {film} ({year if year else ''}) due to: {str(e)}"
-            )
+            logger.error(f"Failed to process {film} ({year if year else ''}) due to: {e!s}")
 
 
 if __name__ == "__main__":

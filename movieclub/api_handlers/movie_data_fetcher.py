@@ -1,25 +1,23 @@
-from movieclub.api_handlers.tmdb import fetch_movie_details as fetch_tmdb_details
-from movieclub.api_handlers.letterboxd import fetch_letterboxd_details_wrapper as fetch_letterboxd_details
-from movieclub.api_handlers.letterboxd import construct_url, fetch_reviews, parse_review_data
-
 import logging
 import os
-from dotenv import load_dotenv
-from typing import Dict, Any, Union, Optional, List
+from typing import Any
 
 import discord
+from dotenv import load_dotenv
+
+from movieclub.api_handlers.letterboxd import construct_url, fetch_reviews, parse_review_data
+from movieclub.api_handlers.letterboxd import fetch_letterboxd_details_wrapper as fetch_letterboxd_details
+from movieclub.api_handlers.tmdb import fetch_movie_details as fetch_tmdb_details
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), "../../../.env"))
-
-
 
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
 
-def fetch_and_normalize_movie_data(movie_name: str) -> Dict[str, Union[str, Any]]:
+def fetch_and_normalize_movie_data(movie_name: str) -> dict[str, str | Any]:
     try:
         logging.info(f"Fetching movie data for: {movie_name}")
 
@@ -30,30 +28,21 @@ def fetch_and_normalize_movie_data(movie_name: str) -> Dict[str, Union[str, Any]
         if "letterboxd_link" in letterboxd_details:
             review_url = construct_url(letterboxd_details["letterboxd_link"], "reviews")
             review_page_content = fetch_reviews(review_url)
-            reviews = (
-                parse_review_data(review_page_content) if review_page_content else None
-            )
+            reviews = parse_review_data(review_page_content) if review_page_content else None
         else:
             reviews = None
 
-        movie_data: Dict[str, Union[str, Any]] = {
-            "title": letterboxd_details.get("title", "")
-            or tmdb_details.get("title", ""),
-            "year_of_release": letterboxd_details.get("year_of_release", "")
-            or tmdb_details.get("year_of_release", ""),
-            "tagline": letterboxd_details.get("tagline", "")
-            or tmdb_details.get("tagline", ""),
-            "description": letterboxd_details.get("description", "")
-            or tmdb_details.get("description", ""),
-            "genre": letterboxd_details.get("genres", [])
-            or tmdb_details.get("genres", []),
-            "runtime": letterboxd_details.get("runtime", 0)
-            or tmdb_details.get("runtime", 0),
+        movie_data: dict[str, str | Any] = {
+            "title": letterboxd_details.get("title", "") or tmdb_details.get("title", ""),
+            "year_of_release": letterboxd_details.get("year_of_release", "") or tmdb_details.get("year_of_release", ""),
+            "tagline": letterboxd_details.get("tagline", "") or tmdb_details.get("tagline", ""),
+            "description": letterboxd_details.get("description", "") or tmdb_details.get("description", ""),
+            "genre": letterboxd_details.get("genres", []) or tmdb_details.get("genres", []),
+            "runtime": letterboxd_details.get("runtime", 0) or tmdb_details.get("runtime", 0),
             "rating": letterboxd_details.get("average_rating", "N/A"),
             "reviews": reviews,
             "number_of_reviewers": letterboxd_details.get("number_of_reviewers", 0),
-            "trailer_url": letterboxd_details.get("trailer_link", "")
-            or tmdb_details.get("trailer_link", ""),
+            "trailer_url": letterboxd_details.get("trailer_link", "") or tmdb_details.get("trailer_link", ""),
             "letterboxd_link": letterboxd_details.get("letterboxd_link", ""),
             "banner_image": letterboxd_details.get("banner_image", ""),
         }
@@ -65,7 +54,7 @@ def fetch_and_normalize_movie_data(movie_name: str) -> Dict[str, Union[str, Any]
         raise
 
 
-def select_review(reviews: List[Dict[str, Union[str, Any]]]) -> Optional[str]:
+def select_review(reviews: list[dict[str, str | Any]]) -> str | None:
     if reviews:
         for review in reviews:
             if "review_text" in review and len(review["review_text"]) < 140:
@@ -90,7 +79,7 @@ def convert_to_presentable_count(number: int) -> str:
         return str(number)
 
 
-def movie_data_to_discord_format(movie_data: Dict[str, Any]) -> Dict[str, Any]:
+def movie_data_to_discord_format(movie_data: dict[str, Any]) -> dict[str, Any]:
     try:
         logging.info("Formatting movie data to Discord message format.")
 
@@ -125,9 +114,7 @@ def movie_data_to_discord_format(movie_data: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         for field in fields:
-            embed.add_field(
-                name=field["name"], value=field["value"], inline=field["inline"]
-            )
+            embed.add_field(name=field["name"], value=field["value"], inline=field["inline"])
 
         banner_image = movie_data.get("banner_image")
         if banner_image:
@@ -142,13 +129,11 @@ def movie_data_to_discord_format(movie_data: Dict[str, Any]) -> Dict[str, Any]:
 
         return embed
     except Exception as e:
-        logging.error(
-            f"Error in mapping movie data to discord format: {e}", exc_info=True
-        )
+        logging.error(f"Error in mapping movie data to discord format: {e}", exc_info=True)
         raise
 
 
-def get_movie_discord_embed(movie_name: str) -> Dict[str, Any]:
+def get_movie_discord_embed(movie_name: str) -> dict[str, Any]:
     try:
         movie_data = fetch_and_normalize_movie_data(movie_name)
         if movie_data:

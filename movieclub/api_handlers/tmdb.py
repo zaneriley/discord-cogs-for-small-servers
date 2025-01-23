@@ -1,8 +1,9 @@
-import os
-import requests
 import logging
+import os
+from typing import Any
+
+import requests
 from dotenv import load_dotenv
-from typing import Union, Dict, Any
 
 
 def configure_logging():
@@ -19,7 +20,7 @@ def load_environment_variables():
     load_dotenv(os.path.join(os.path.dirname(__file__), "../../../.env"))
 
 
-def make_request(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+def make_request(url: str, params: dict[str, Any]) -> dict[str, Any]:
     """
     Makes a GET request to the specified URL with the given parameters and returns the JSON response.
     """
@@ -27,21 +28,19 @@ def make_request(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
         response = requests.get(url, params=params)
         response.raise_for_status()
         return response.json()
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error making request to {url}: {e}")
+    except requests.exceptions.RequestException:
+        logging.exception("Error making request to %s", url)
         return None
 
 
-def extract_movie_details(movie_data: Dict[str, Any]) -> Dict[str, Any]:
+def extract_movie_details(movie_data: dict[str, Any]) -> dict[str, Any]:
     """
     Extracts movie details from the API response data.
     """
     genres = [genre["name"] for genre in movie_data.get("genres", [])]
     return {
         "title": movie_data.get("title", "N/A"),
-        "year_of_release": int(movie_data["release_date"].split("-")[0])
-        if movie_data.get("release_date")
-        else "N/A",
+        "year_of_release": int(movie_data["release_date"].split("-")[0]) if movie_data.get("release_date") else "N/A",
         "tagline": movie_data.get("tagline", "N/A"),
         "genres": genres,
         "runtime": movie_data.get("runtime", "N/A"),
@@ -54,7 +53,7 @@ def extract_movie_details(movie_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def fetch_movie_details(movie_name: str) -> Union[Dict[str, Any], None]:
+def fetch_movie_details(movie_name: str) -> dict[str, Any] | None:
     """
     Fetches movie details from TMDb API by movie name.
     """
@@ -77,9 +76,7 @@ def fetch_movie_details(movie_name: str) -> Union[Dict[str, Any], None]:
 
     # Step 2: Use the movie ID to fetch detailed info
     movie_url = f"{API_BASE_URL}/movie/{movie_id}"
-    params[
-        "append_to_response"
-    ] = "videos"  # Include videos (for trailer link) in the response
+    params["append_to_response"] = "videos"  # Include videos (for trailer link) in the response
     movie_data = make_request(movie_url, params)
     if not movie_data:
         return None

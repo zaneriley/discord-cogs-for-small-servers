@@ -1,0 +1,21 @@
+{
+    "author": [
+        "badcity"
+    ],
+    "description": "A cog for locking emojis in a channel.",
+    "install_msg": "Thank you for installing EmojiLocker! This cog is meant for attaching specific emojis to specific server roles",
+    "short": "Lock emojis to discord roles",
+    "end_user_data_statement": "This cog does not persistently store any data or metadata about users.",
+    "min_bot_version": "3.0.0",
+    "hidden": false,
+    "disabled": false,
+    "required_cogs": {},
+    "requirements": [],
+    "tags": [
+        "emoji",
+        "lock",
+        "moderation"
+    ],
+    "type": "COG"
+    
+}

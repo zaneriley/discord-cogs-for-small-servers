@@ -11,6 +11,7 @@ from utilities.image_utils import get_image_handler
 
 logger = logging.getLogger(__name__)
 
+
 class EmojiRoleSelect(Select):
     def __init__(self, emojis, roles):
         options = [discord.SelectOption(label=str(emoji), value=str(emoji.id)) for emoji in emojis if emoji is not None]
@@ -29,15 +30,19 @@ class EmojiRoleSelect(Select):
         view.add_item(role_select)
         await interaction.response.send_message("Select a role to assign to the emoji:", view=view, ephemeral=True)
 
+
 class ViewWithCog(View):
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
 
+
 class RoleSelect(discord.ui.Select):
     def __init__(self, roles, cog, emoji):
         options = [discord.SelectOption(label=role.name, value=str(role.id)) for role in roles]
-        super().__init__(placeholder="Choose a role", min_values=1, max_values=1, options=options, custom_id="role_select")
+        super().__init__(
+            placeholder="Choose a role", min_values=1, max_values=1, options=options, custom_id="role_select"
+        )
         self.cog = cog
         self.emoji = emoji
 
@@ -54,7 +59,9 @@ class RoleSelect(discord.ui.Select):
         try:
             # Add the selected role and the admin roles to the emoji
             await self.emoji.edit(roles=[role, admin_roles], reason="Restricting emoji to specific role")
-            await interaction.response.send_message(f"Emoji {self.emoji} is now restricted to role {role.name} and admin roles", ephemeral=True)
+            await interaction.response.send_message(
+                f"Emoji {self.emoji} is now restricted to role {role.name} and admin roles", ephemeral=True
+            )
         except discord.Forbidden:
             await interaction.response.send_message("I do not have permission to edit this emoji.", ephemeral=True)
         except discord.HTTPException as e:
@@ -62,6 +69,7 @@ class RoleSelect(discord.ui.Select):
 
             async with self.cog.config.guild(interaction.guild).emoji_roles() as emoji_roles:
                 emoji_roles[str(self.emoji.id)] = {"role_id": role.id, "roles": [role.id for role in admin_roles]}
+
 
 class UnrestrictEmojiSelect(discord.ui.Select):
     def __init__(self, cog, restricted_emojis: list[discord.Emoji]):
@@ -80,9 +88,7 @@ class UnrestrictEmojiSelect(discord.ui.Select):
             logger.debug(f"Unrestricting emoji: {emoji}")
 
             if not emoji.roles:  # Check if the emoji already has no roles assigned
-                await interaction.response.send_message(
-                    f"Emoji {emoji} is not restricted.", ephemeral=True
-                )
+                await interaction.response.send_message(f"Emoji {emoji} is not restricted.", ephemeral=True)
                 return
 
             await emoji.edit(roles=[], reason="Unrestricting emoji")
@@ -94,18 +100,17 @@ class UnrestrictEmojiSelect(discord.ui.Select):
 
         except discord.Forbidden:
             logger.exception("Failed to unrestrict emoji due to insufficient permissions.")
-            await interaction.response.send_message(
-                "I do not have permission to edit this emoji.", ephemeral=True
-            )
+            await interaction.response.send_message("I do not have permission to edit this emoji.", ephemeral=True)
         except discord.HTTPException as e:
             logger.exception("Failed to unrestrict emoji due to an HTTP exception:")
             await interaction.response.send_message(f"Failed to edit emoji: {e}", ephemeral=True)
-        except Exception as e:  # Catch more general exceptions for configuration saving
+        except Exception:  # Catch more general exceptions for configuration saving
             logger.exception("An unexpected error occurred while unrestricting emoji:")
             await interaction.response.send_message(
                 "An error occurred while saving the configuration. Please try again later.",
                 ephemeral=True,
             )
+
 
 class UnrestrictEmojiView(discord.ui.View):
     def __init__(self, cog, restricted_emojis):
@@ -120,9 +125,7 @@ class EmojiLocker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
-        default_guild = {
-            "emoji_roles": {}
-        }
+        default_guild = {"emoji_roles": {}}
         self.config.register_guild(**default_guild)
 
     @commands.Cog.listener()
@@ -153,7 +156,6 @@ class EmojiLocker(commands.Cog):
             logger.exception(f"An error occurred while creating emoji: {e}")
             await ctx.send("An error occurred while creating the emoji. Please try again later.")
 
-
     @emojilocker.command(name="set")
     @commands.has_permissions(manage_roles=True)
     async def restrict(self, ctx, emojis: commands.Greedy[discord.Emoji]):
@@ -165,7 +167,7 @@ class EmojiLocker(commands.Cog):
 
         try:
             msg = await self.bot.wait_for("message", check=check, timeout=60.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await ctx.send("No reply within 60 seconds, cancelling operation.")
             return
 
@@ -225,10 +227,13 @@ class EmojiLocker(commands.Cog):
         view = UnrestrictEmojiView(self, restricted_emojis)
         await ctx.send("Select an emoji to unrestrict:", view=view)
 
-
     @emojilocker.command(name="list")
     @commands.has_permissions(manage_roles=True)
     async def list_emoji_roles(self, ctx):
+        if ctx.guild is None:
+            await ctx.send("This command can only be used within a server (guild).")
+            return
+
         """List all emojis that are restricted to specific roles."""
         emojis = ctx.guild.emojis
         restricted_emojis = [emoji for emoji in emojis if emoji.roles]
@@ -238,7 +243,7 @@ class EmojiLocker(commands.Cog):
             pages = []
             for i in range(0, len(restricted_emojis), 10):  # Adjust the number as needed
                 page = ""
-                for emoji in restricted_emojis[i:i+10]:
+                for emoji in restricted_emojis[i : i + 10]:
                     role_names = [role.name for role in emoji.roles]
                     page += f"{emoji}: {', '.join(role_names)}\n"
                 pages.append(page)

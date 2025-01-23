@@ -1,19 +1,19 @@
 import logging
-from typing import Dict, List, Optional, Iterable
-from collections import defaultdict
 import random
 import re
+from collections import defaultdict
+from collections.abc import Iterable
 
 import discord
-from discord import ui
-from discord import Button, ButtonStyle
-from discord.ui import View
+from discord import Button, ButtonStyle, ui
 from discord.errors import HTTPException
+from discord.ui import View
+
+from movieclub.api_handlers.movie_data_fetcher import movie_data_to_discord_format
 
 # Application-specific imports
 from movieclub.classes.poll import Poll
 from movieclub.constants import MOVIE_CLUB_LOGO
-from movieclub.api_handlers.movie_data_fetcher import movie_data_to_discord_format
 from utilities.discord_utils import create_discord_thread
 
 MAX_BUTTON_LABEL_SIZE = 16
@@ -59,7 +59,8 @@ too_many_votes_endings = [
 
 
 class MovieInteraction(View):
-    "Buttons for Approve, Edit and Reject actions"
+
+    """Buttons for Approve, Edit and Reject actions"""
 
     def __init__(self):
         super().__init__(timeout=60)
@@ -81,9 +82,7 @@ class MovieInteraction(View):
 
     @ui.button(custom_id="edit")
     async def edit_button(self, button: ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "Movie data edit feature not implemented yet."
-        )
+        await interaction.response.send_message("Movie data edit feature not implemented yet.")
 
     @ui.button(custom_id="reject")
     async def reject_button(self, button: ui.Button, interaction: discord.Interaction):
@@ -123,16 +122,12 @@ class MoviePoll(Poll):
     async def end_poll(self, ctx):
         try:
             target_role = await self.get_target_role()
-            logging.debug(
-                "Clearing votes and user votes, setting Movie Poll as inactive."
-            )
+            logging.debug("Clearing votes and user votes, setting Movie Poll as inactive.")
             votes = await self.get_votes()
             stored_movies = defaultdict(dict, await self.get_stored_movies())
             winner_movie = max(votes, key=votes.get) if any(votes.values()) else None
             winner_movie_data = stored_movies.get(winner_movie)
-            logging.debug(
-                f"Winner movie: {winner_movie}, Stored movies: {stored_movies.keys()}"
-            )
+            logging.debug(f"Winner movie: {winner_movie}, Stored movies: {stored_movies.keys()}")
 
             if winner_movie:
                 trailer_url = winner_movie_data.get("trailer_url")
@@ -168,7 +163,7 @@ class MoviePoll(Poll):
             logging.debug("Movie Poll ended and set as inactive successfully.")
 
         except Exception as e:
-            logging.error(f"Unable to end movie poll due to: {str(e)}")
+            logging.exception(f"Unable to end movie poll due to: {e!s}")
 
     async def keep_poll_alive(self):
         logging.debug("Keeping Movie Poll alive...")
@@ -181,9 +176,7 @@ class MoviePoll(Poll):
                 await poll_message.edit(view=view)
                 logging.debug("Message edited.")
             except HTTPException as e:
-                logging.debug(
-                    f"Unable to edit the message due to {e}. Setting the poll to inactive."
-                )
+                logging.debug(f"Unable to edit the message due to {e}. Setting the poll to inactive.")
                 await self.remove_poll_from_config(self)
 
     async def restore_poll(self):
@@ -199,23 +192,16 @@ class MoviePoll(Poll):
 
     async def build_view(self, movie_names: Iterable[str]) -> discord.ui.View:
         view = discord.ui.View()
-        total_length = 0
-        logging.debug(f"movie_names: {movie_names}")
+        
+        # Add each movie button
         for movie_name in movie_names:
-            total_length += len(movie_name)
             movie_button = self.MovieButton(label=movie_name, movie_poll=self)
-            view.add_item(movie_button)  # Add buttons to the view
-
-        # if total_length >= 66:
-        #     reduction_value = total_length - 66
-        #     longest_label_length = max(len(movie_name) for movie_name in movie_names)
-        #     for movie_button in view.children:
-        #         if len(movie_button.label) > reduction_value:
-        #             movie_button.label = movie_button.label[:-(reduction_value + 3)] + "..."
-        #         reduction_value -= longest_label_length - len(movie_button.label)
-        #         if reduction_value <= 0:
-        #             break
-
+            view.add_item(movie_button)
+        
+        # Add "Can't go" button
+        cannot_go_button = self.MovieButton(label="Can't Attend", movie_poll=self)
+        view.add_item(cannot_go_button)
+        
         return view
 
     async def add_vote(self, user_id: str, movie_name: str):
@@ -228,9 +214,7 @@ class MoviePoll(Poll):
             if user_id in user_votes:
                 old_movie = user_votes[user_id]
                 if old_movie == movie_name:
-                    logging.info(
-                        f"User {user_id} is attempting to vote for the same movie"
-                    )
+                    logging.info(f"User {user_id} is attempting to vote for the same movie")
                     return
                 votes[old_movie] -= 1
                 user_votes[user_id] = movie_name
@@ -241,15 +225,13 @@ class MoviePoll(Poll):
             else:
                 user_votes[user_id] = movie_name
                 votes[movie_name] += 1
-                logging.info(
-                    f"Vote added: User {user_id} voted for {movie_name}. Total votes: {votes}"
-                )
+                logging.info(f"Vote added: User {user_id} voted for {movie_name}. Total votes: {votes}")
 
             await self.set_user_votes(dict(user_votes))
             await self.set_votes(dict(votes))
 
         except Exception as e:
-            logging.error(f"Error occurred while adding vote: {e}")
+            logging.exception(f"Error occurred while adding vote: {e}")
 
     async def remove_vote(self, user_id: str):
         """Removes a vote for a movie."""
@@ -261,11 +243,9 @@ class MoviePoll(Poll):
                 del user_votes[user_id]
                 await self.set_votes(dict(votes))
                 await self.set_user_votes(dict(user_votes))
-                logging.info(
-                    f"Vote removed: User {user_id}'s vote for {movie_name} removed. Total votes: {votes}"
-                )
+                logging.info(f"Vote removed: User {user_id}'s vote for {movie_name} removed. Total votes: {votes}")
         except Exception as e:
-            logging.error(f"Error occurred while removing vote: {e}")
+            logging.exception(f"Error occurred while removing vote: {e}")
 
     def send_initial_message(self):
         pass
@@ -310,7 +290,7 @@ class MoviePoll(Poll):
         ORDINAL_SUFFIXES = {1: "st", 2: "nd", 3: "rd"}
 
         try:
-            target_role_id: Optional[int] = await self.get_target_role()
+            target_role_id: int | None = await self.get_target_role()
             if not target_role_id:
                 logging.warning(NO_TARGET_ROLE_MSG)
                 await ctx.send(NO_TARGET_ROLE_MSG)
@@ -321,7 +301,7 @@ class MoviePoll(Poll):
                 await ctx.send(TARGET_ROLE_NOT_FOUND_MSG)
                 return
 
-            user_votes: Dict[int, str] = await self.get_user_votes()
+            user_votes: dict[int, str] = await self.get_user_votes()
             if not user_votes:
                 logging.error(FETCH_USER_VOTES_ERROR_MSG)
                 await ctx.send(GENERAL_ERROR_MSG)
@@ -329,41 +309,33 @@ class MoviePoll(Poll):
 
             all_movies = await self.get_stored_movies()
             target_role_member_ids = set(member.id for member in target_role.members)
-            voted_member_ids = set(int(user_id) for user_id in user_votes.keys())
+            voted_member_ids = set(int(user_id) for user_id in user_votes)
             non_voters = target_role_member_ids - voted_member_ids
 
-            movie_votes: Dict[str, List[str]] = {movie: [] for movie in all_movies}
+            movie_votes: dict[str, list[str]] = {movie: [] for movie in all_movies}
             for user_id, movie in user_votes.items():
                 movie_votes[movie].append(f"<@{user_id}>")
 
-            sorted_movies = sorted(
-                movie_votes.items(), key=lambda x: len(x[1]), reverse=True
-            )
-            message_lines: List[str] = []
+            sorted_movies = sorted(movie_votes.items(), key=lambda x: len(x[1]), reverse=True)
+            message_lines: list[str] = []
 
             for rank, (movie, voters) in enumerate(sorted_movies, 1):
                 suffix = ORDINAL_SUFFIXES.get(rank, "th")
                 title = f"{rank}{suffix}: {movie}"
                 if voters:
-                    message_lines.append(
-                        f"\u200B\n{title} ({len(voters)} votes · {', '.join(voters)})"
-                    )
+                    message_lines.append(f"\u200B\n{title} ({len(voters)} votes · {', '.join(voters)})")
                 else:
                     message_lines.append(f"\u200B\n{title} (No votes, RIP)")
 
             if non_voters:
-                non_voter_mentions = ", ".join(
-                    [f"<@{member_id}>" for member_id in non_voters]
-                )
+                non_voter_mentions = ", ".join([f"<@{member_id}>" for member_id in non_voters])
                 # TODO: add logic to handle target_role or entire guild depending on settings
-                message_lines.append(
-                    f"\nPeople who have not voted: {non_voter_mentions}"
-                )
+                message_lines.append(f"\nPeople who have not voted: {non_voter_mentions}")
 
             await ctx.send("\n".join(message_lines))
 
         except ValueError as ve:
-            logging.error(f"Value error in get_vote_progress: {ve}")
+            logging.exception(f"Value error in get_vote_progress: {ve}")
             await ctx.send(GENERAL_ERROR_MSG)
 
         except Exception as e:
@@ -393,18 +365,12 @@ class MoviePoll(Poll):
                     else {interaction.guild.members}
                 )
             else:
-                target_role_member_ids = set(
-                    member.id for member in interaction.guild.members
-                )
-            logging.info(
-                f"update percentage target role member ids: {target_role_member_ids}"
-            )
+                target_role_member_ids = set(member.id for member in interaction.guild.members)
+            logging.info(f"update percentage target role member ids: {target_role_member_ids}")
 
             unique_role_voters = unique_voters.intersection(target_role_member_ids)
 
-            percentage_voted = (
-                len(unique_role_voters) / len(target_role_member_ids)
-            ) * 100
+            percentage_voted = (len(unique_role_voters) / len(target_role_member_ids)) * 100
 
             # Check if original_message_content is None, if so, store the current message content
             if self.movie_poll.original_message_content is None:
@@ -422,9 +388,7 @@ class MoviePoll(Poll):
                 percentage_voted_text = f"<:fingercrossed:1103626715663712286> {voter_count} movie club {passholder_text} voted, {more_to_go} more to go! ({percentage_voted:.2f}% participation)"
             logging.debug(f"Percentage voted text: {percentage_voted_text}")
 
-            def update_string(
-                message: str, voter_count: int, more_to_go: int, percentage_voted: float
-            ) -> str:
+            def update_string(message: str, voter_count: int, more_to_go: int, percentage_voted: float) -> str:
                 pattern = r"(<:fingercrossed:1103626715663712286> \d+ movie club passholder(s)? voted, \d+ more to go! \(\d+(\.\d+)?% participation\)\n\u200B)"
                 match = re.search(pattern, message)
                 passholder_text = "passholder" if voter_count == 1 else "passholders"
@@ -439,12 +403,8 @@ class MoviePoll(Poll):
                     message += "\n" + new_string
                 return message
 
-            updated_message = update_string(
-                original_message.content, voter_count, more_to_go, percentage_voted
-            )
-            logging.debug(
-                f"Updating message with percentage voted text: {percentage_voted_text}"
-            )
+            updated_message = update_string(original_message.content, voter_count, more_to_go, percentage_voted)
+            logging.debug(f"Updating message with percentage voted text: {percentage_voted_text}")
             await original_message.edit(content=updated_message)
 
         async def callback(self, interaction: discord.Interaction):
@@ -455,30 +415,26 @@ class MoviePoll(Poll):
             logging.info(f"User {user_id} old movie is {old_movie}")
             if not old_movie:
                 await self.movie_poll.add_vote(user_id, self.label)
-                message = (
-                    f"You voted for `{self.label}`."
-                    + f"\n\n_{random.choice(first_vote_endings)}_"
-                )
+                message = f"You voted for `{self.label}`." + f"\n\n_{random.choice(first_vote_endings)}_"
             elif old_movie == self.label:
                 await self.movie_poll.remove_vote(user_id)
                 message = f"Your vote has been removed from `{old_movie}`. \n\nDon't forget to vote for another movie!"
+            elif self.movie_poll.vote_change_counter[user_id] >= 3:  # Check if user has changed vote more than 3 times
+                message = (
+                    f"You voted for `{self.label}`.\n\nYour previous vote for `{old_movie}` has been removed."
+                    + f"\n\n_{random.choice(too_many_votes_endings)}_"
+                )
             else:
-                if (
-                    self.movie_poll.vote_change_counter[user_id] >= 3
-                ):  # Check if user has changed vote more than 3 times
-                    message = (
-                        f"You voted for `{self.label}`.\n\nYour previous vote for `{old_movie}` has been removed."
-                        + f"\n\n_{random.choice(too_many_votes_endings)}_"
-                    )
-                else:
-                    await self.movie_poll.remove_vote(user_id)
-                    await self.movie_poll.add_vote(user_id, self.label)
-                    self.movie_poll.vote_change_counter[
-                        user_id
-                    ] += 1  # Increment the counter
-                    message = (
-                        f"You voted for `{self.label}`.\n\nYour previous vote for `{old_movie}` has been removed."
-                        + f"\n\n_{random.choice(next_vote_endings)}_"
-                    )
+                await self.movie_poll.remove_vote(user_id)
+                await self.movie_poll.add_vote(user_id, self.label)
+                self.movie_poll.vote_change_counter[user_id] += 1  # Increment the counter
+                message = (
+                    f"You voted for `{self.label}`.\n\nYour previous vote for `{old_movie}` has been removed."
+                    + f"\n\n_{random.choice(next_vote_endings)}_"
+                )
+            if self.label == "Can't Attend":
+                # Record that user can't attend
+                await self.movie_poll.add_vote(user_id, "NoGo")
+                message = "You've noted that you can't attend. If you change your mind, you can pick a movie!"
             await self.update_percentage_voted_text(interaction)
             await interaction.response.send_message(message, ephemeral=True)
