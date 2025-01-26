@@ -60,8 +60,9 @@ Next:
 
 Keep your server's custom emojis organized and exclusive by controlling which roles can use them. Perfect for creating VIP perks or managing themed channels.
 
-- [x] **Easy Emoji Creation**: Add new emojis by simply pasting an image URL, uploading a file, or copying from other servers with `!emojilocker create {emoji-name} {source}`.
-- [x] **Role-Based Access**: Restrict emojis to specific roles (e.g., VIP members, event participants) with `!emojilocker set {emoji}`.
+- [x] **Easy Emoji Creation**: Add new emojis by simply pasting an image URL, uploading a file, or copying from other servers with `!emojilocker create {name} {source}`.
+- [x] **Role-Based Access**: Restrict multiple emojis to specific roles (e.g., VIP members, event participants) with `!emojilocker set {emoji1} {emoji2} ...`.
+- [x] **Remove Restrictions**: Unrestrict emojis to allow all roles to use them with `!emojilocker unset`.
 - [x] **Bulk Management**: View and manage all restricted emojis in one place with `!emojilocker list`.
 - [x] **Admin Override**: Admins always retain access to restricted emojis.
 

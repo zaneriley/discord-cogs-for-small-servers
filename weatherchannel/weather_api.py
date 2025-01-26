@@ -25,6 +25,11 @@ class WeatherAPIHandler(ABC):
     async def get_alerts(self, location: str):
         pass
 
+    def _reraise_exception(self, e: Exception, message: str, location: str):
+        """Helper function to log and re-raise exceptions."""
+        logger.exception(f"{message} for location %s: %s", location, str(e))
+        raise
+
 
 class OpenMeteoAPI(WeatherAPIHandler):
     BASE_URL = "https://api.open-meteo.com/v1/forecast"
@@ -37,11 +42,19 @@ class OpenMeteoAPI(WeatherAPIHandler):
             "daily": "temperature_2m_max,temperature_2m_min,sunrise,sunset",
             "timezone": "auto",
         }
-        async with aiohttp.ClientSession() as session, session.get(self.BASE_URL, params=params) as response:
-            return await response.json()
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(self.BASE_URL, params=params) as response:
+                    response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+                    return await response.json()
+        except aiohttp.ClientError as e:
+            self._reraise_exception(e, "Error fetching forecast from Open-Meteo API", location)
+
 
     async def get_alerts(self, location: str):
-        pass
+        # Open-Meteo API doesn't have explicit alerts in the same way as weather.gov, so this is a placeholder.
+        logger.warning("Alerts are not supported by Open-Meteo API.")
+        return None # Explicitly return None is okay here for clarity
 
 
 class WeatherGovAPI(WeatherAPIHandler):
@@ -61,50 +74,52 @@ class WeatherGovAPI(WeatherAPIHandler):
             lat, lon = self._validate_location_format(location)
             endpoint = f"/points/{lat},{lon}"
             async with self.session.get(self.BASE_URL + endpoint) as response:
-                if response.status != 200:
-                    logger.error("Failed to retrieve gridpoint data: %s", await response.text())
-                    response.raise_for_status()
+                response.raise_for_status()
                 data = await response.json()
                 forecast_url = data["properties"]["forecast"]
                 logger.debug("Forecast URL retrieved: %s", forecast_url)
                 return forecast_url
-        except ValueError:
-            logger.exception("Invalid location string: %s", location)
-            raise
-        except Exception as e:
-            logger.exception("Error retrieving gridpoint data: %s", str(e))
-            raise
+        except ValueError as e:  # Catch specific ValueError
+            self._reraise_exception(e, "Invalid location string", location)
+        except aiohttp.ClientError as e:  # Catch specific aiohttp ClientError
+            self._reraise_exception(e, "Error retrieving gridpoint data", location)
+        except KeyError as e: # Catch specific KeyError if 'properties' or 'forecast' is missing
+            self._reraise_exception(e, "Data structure error - missing key while retrieving gridpoint", location)
+        except Exception as e:  # Catch any other unexpected exceptions
+            self._reraise_exception(e, "Unexpected error during _get_gridpoint", location)
+
 
     async def get_forecast(self, location: str):
         """Retrieve forecast data for a given location."""
         try:
             forecast_url = await self._get_gridpoint(location)
             async with self.session.get(forecast_url) as response:
-                if response.status != 200:
-                    logger.error("Failed to retrieve forecast data: %s", await response.text())
-                    response.raise_for_status()
+                response.raise_for_status()
                 forecast_data = await response.json()
                 if "properties" not in forecast_data:
                     logger.error("Forecast data missing 'properties' key: %s", forecast_data)
                     raise KeyError("Forecast data missing 'properties' key")
                 return forecast_data
-        except Exception as e:
-            logger.exception("Error retrieving forecast data: %s", str(e))
-            raise
+        except aiohttp.ClientError as e:  # Catch specific aiohttp ClientError
+            self._reraise_exception(e, "Error retrieving forecast data", location)
+        except KeyError as e: # Catch specific KeyError if 'properties' is missing in forecast data
+            self._reraise_exception(e, "Data structure error - Forecast data missing 'properties' key", location)
+        except Exception as e:  # Catch any other unexpected exceptions
+            self._reraise_exception(e, "Error retrieving forecast data", location)
+
 
     async def get_alerts(self, location: str):
         """Retrieve alerts for a given location."""
         try:
             forecast_url = await self._get_gridpoint(location)
-            alerts_url = forecast_url.replace("forecast", "alerts")
-            async with self.session.get(alerts_url) as response:
-                if response.status != 200:
-                    logger.error("Failed to retrieve alerts data: %s", await response.text())
-                    response.raise_for_status()
+            async with self.session.get(forecast_url) as response:
+                response.raise_for_status()
                 return await response.json()
-        except Exception as e:
-            logger.exception("Error retrieving alerts data: %s", str(e))
-            raise
+        except aiohttp.ClientError as e:  # Catch specific aiohttp ClientError
+            self._reraise_exception(e, "Error retrieving alerts data", location)
+        except Exception as e:  # Catch any other unexpected exceptions
+            self._reraise_exception(e, "Error retrieving alerts data", location)
+
 
     async def close(self):
         await self.session.close()

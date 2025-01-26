@@ -1,0 +1,15 @@
+{
+    "errors": {
+      "location_not_recognized": "Location data unclear. Use preset or 'Everywhere'.",
+      "weather_channel_set_error": "Weather channel setup failed.",
+      "service": { 
+        "invalid_coords_format": "Invalid coordinates format for {city}.",
+        "coords_conversion_error": "Error in coordinates format for {city}.",
+        "weather_fetch_error": "Error fetching weather for {city}."
+        }
+    },
+    "messages": {
+      "weather_channel_set_success": "Weather reports to {channel_mention}."
+    },
+    "weather_report_title": "Weather Report"
+  }

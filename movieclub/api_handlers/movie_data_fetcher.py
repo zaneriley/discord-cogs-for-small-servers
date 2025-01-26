@@ -4,6 +4,7 @@ from typing import Any
 
 import discord
 from dotenv import load_dotenv
+import aiohttp
 
 from movieclub.api_handlers.letterboxd import construct_url, fetch_reviews, parse_review_data
 from movieclub.api_handlers.letterboxd import fetch_letterboxd_details_wrapper as fetch_letterboxd_details
@@ -17,41 +18,55 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "../../../.env"))
 logging.basicConfig(level=logging.INFO)
 
 
-def fetch_and_normalize_movie_data(movie_name: str) -> dict[str, str | Any]:
-    try:
-        logging.info(f"Fetching movie data for: {movie_name}")
+class MovieDataFetcher:
+    def __init__(self):
+        self.session = None
 
-        tmdb_details = fetch_tmdb_details(movie_name)
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession()
+        return self
 
-        letterboxd_details = fetch_letterboxd_details(movie_name)
-        logging.info(f"Letterboxd details: {letterboxd_details}")
-        if "letterboxd_link" in letterboxd_details:
-            review_url = construct_url(letterboxd_details["letterboxd_link"], "reviews")
-            review_page_content = fetch_reviews(review_url)
-            reviews = parse_review_data(review_page_content) if review_page_content else None
-        else:
-            reviews = None
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
 
-        movie_data: dict[str, str | Any] = {
-            "title": letterboxd_details.get("title", "") or tmdb_details.get("title", ""),
-            "year_of_release": letterboxd_details.get("year_of_release", "") or tmdb_details.get("year_of_release", ""),
-            "tagline": letterboxd_details.get("tagline", "") or tmdb_details.get("tagline", ""),
-            "description": letterboxd_details.get("description", "") or tmdb_details.get("description", ""),
-            "genre": letterboxd_details.get("genres", []) or tmdb_details.get("genres", []),
-            "runtime": letterboxd_details.get("runtime", 0) or tmdb_details.get("runtime", 0),
-            "rating": letterboxd_details.get("average_rating", "N/A"),
-            "reviews": reviews,
-            "number_of_reviewers": letterboxd_details.get("number_of_reviewers", 0),
-            "trailer_url": letterboxd_details.get("trailer_link", "") or tmdb_details.get("trailer_link", ""),
-            "letterboxd_link": letterboxd_details.get("letterboxd_link", ""),
-            "banner_image": letterboxd_details.get("banner_image", ""),
-        }
+    async def fetch_movie_info(self, movie_name: str):
+        try:
+            async with self as fetcher:
+                logging.info(f"Fetching movie data for: {movie_name}")
 
-        logging.info("Fetched and normalized movie data.")
-        return movie_data
-    except Exception as e:
-        logging.error(f"Error while fetching movie data: {e}", exc_info=True)
-        raise
+                tmdb_details = fetch_tmdb_details(movie_name)
+
+                letterboxd_details = fetch_letterboxd_details(movie_name)
+                logging.info(f"Letterboxd details: {letterboxd_details}")
+                if "letterboxd_link" in letterboxd_details:
+                    review_url = construct_url(letterboxd_details["letterboxd_link"], "reviews")
+                    review_page_content = fetch_reviews(review_url)
+                    reviews = parse_review_data(review_page_content) if review_page_content else None
+                else:
+                    reviews = None
+
+                movie_data: dict[str, str | Any] = {
+                    "title": letterboxd_details.get("title", "") or tmdb_details.get("title", ""),
+                    "year_of_release": letterboxd_details.get("year_of_release", "") or tmdb_details.get("year_of_release", ""),
+                    "tagline": letterboxd_details.get("tagline", "") or tmdb_details.get("tagline", ""),
+                    "description": letterboxd_details.get("description", "") or tmdb_details.get("description", ""),
+                    "genre": letterboxd_details.get("genres", []) or tmdb_details.get("genres", []),
+                    "runtime": letterboxd_details.get("runtime", 0) or tmdb_details.get("runtime", 0),
+                    "rating": letterboxd_details.get("average_rating", "N/A"),
+                    "reviews": reviews,
+                    "number_of_reviewers": letterboxd_details.get("number_of_reviewers", 0),
+                    "trailer_url": letterboxd_details.get("trailer_link", "") or tmdb_details.get("trailer_link", ""),
+                    "letterboxd_link": letterboxd_details.get("letterboxd_link", ""),
+                    "banner_image": letterboxd_details.get("banner_image", ""),
+                }
+
+                logging.info("Fetched and normalized movie data.")
+                return movie_data
+        except Exception as e:
+            error_msg = f"Error in fetch_movie_info for {movie_name}: {e}"
+            logging.error(error_msg, exc_info=True)
+            return None, None
 
 
 def select_review(reviews: list[dict[str, str | Any]]) -> str | None:
@@ -126,7 +141,7 @@ def movie_data_to_discord_format(movie_data: dict[str, Any]) -> dict[str, Any]:
             footer_text = f'"{footer_text}"'
             footer_icon = "https://cdn3.emoji.gg/emojis/7133-star.gif"
             embed.set_footer(text=footer_text, icon_url=footer_icon)
-
+        
         return embed
     except Exception as e:
         logging.error(f"Error in mapping movie data to discord format: {e}", exc_info=True)
@@ -135,7 +150,7 @@ def movie_data_to_discord_format(movie_data: dict[str, Any]) -> dict[str, Any]:
 
 def get_movie_discord_embed(movie_name: str) -> dict[str, Any]:
     try:
-        movie_data = fetch_and_normalize_movie_data(movie_name)
+        movie_data, discord_format = asyncio.run(MovieDataFetcher().fetch_movie_info(movie_name))
         if movie_data:
             discord_format = movie_data_to_discord_format(movie_data)
             if discord_format:
@@ -143,7 +158,8 @@ def get_movie_discord_embed(movie_name: str) -> dict[str, Any]:
                 logging.info(f"Discord message: {discord_format}")
                 return movie_data, discord_format
         else:
-            raise Exception(f"Failed to fetch movie data for {movie_name}.")
+            msg = f"Failed to fetch movie data for {movie_name}."
+            raise Exception(msg)
     except Exception as e:
         logging.error(f"An error occurred in gather_movie_info: {e}", exc_info=True)
         return {}

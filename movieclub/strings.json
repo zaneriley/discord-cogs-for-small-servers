@@ -1,0 +1,9 @@
+{
+  "movie_lookup": {
+    "not_found": "Could not find movie: {movie_name}",
+    "error": "An error occurred while looking up the movie. Please try again later.",
+    "examples": {
+      "description": "Look up a movie's details using Letterboxd and TMDB.\n\nExamples:\n!movie Inception\n!m \"The Dark Knight\"\n/movie Inception"
+    }
+  }
+} 

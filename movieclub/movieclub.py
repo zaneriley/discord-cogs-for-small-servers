@@ -2,11 +2,15 @@
 import logging
 from collections import defaultdict
 from typing import Literal
+import asyncio
+import json
+from pathlib import Path
 
 # Third-party library imports
 import discord
 from discord.errors import HTTPException
 from discord.ext import tasks
+from discord import app_commands
 
 # Application-specific imports
 from redbot.core import Config, commands
@@ -35,6 +39,13 @@ class MovieClub(commands.Cog):
         self.movies = {}
         # self.config.register_poll(poll_id="", votes={}, user_votes={})
         self.keep_poll_alive.start()
+        self.strings = self._load_strings()
+
+    def _load_strings(self) -> dict:
+        """Load localized strings from JSON file."""
+        path = Path(__file__).parent / "strings.json"
+        with path.open(encoding="utf-8") as f:
+            return json.load(f)
 
     async def get_all_active_polls_from_config(self, guild):
         return await self.config.guild(guild).polls()
@@ -105,41 +116,43 @@ class MovieClub(commands.Cog):
     @commands.guild_only()
     @commands.bot_has_permissions(embed_links=True)
     @commands.mod_or_permissions(manage_messages=True)
-    @poll.command()
-    async def date(self, ctx, action: str, month: str = None):
-        target_role = await self.config.guild(ctx.guild).target_role()
+    @poll.group(name="date")
+    async def date_poll(self, ctx):
+        """
+        This is now a group for date poll commands.
+        Example usage:
+          !movieclub poll date start
+          !movieclub poll date end
+          !movieclub poll date votes
+        """
+        if ctx.invoked_subcommand is None:
+            await ctx.send("Available subcommands: start, end, votes")
 
-        if action.lower() == "start":
-            try:
-                if "date_poll" in self.active_polls.keys():
-                    await ctx.send("A date poll is already active.")
-                    return
-                else:
-                    poll = DatePoll(self.bot, self.config, ctx.guild)
-                    await poll.write_poll_to_config()
-                    await poll.start_poll(ctx, action, month)
-                    self.active_polls["date_poll"] = poll  # add poll to active polls using new poll_id
-                    await ctx.send("A date poll is activated.")
+    @date_poll.command(name="start")
+    async def date_poll_start(self, ctx, month: str = None):
+        """Start a date poll."""
+        if "date_poll" in self.active_polls.keys():
+            await ctx.send("A date poll is already active.")
+            return
+        # Setup logic for starting the poll
+        poll = DatePoll(self.bot, self.config, ctx.guild)
+        await poll.write_poll_to_config()
+        await poll.start_poll(ctx, "start", month)
+        self.active_polls["date_poll"] = poll
+        await ctx.send("A date poll is activated.")
 
-            except AttributeError:
-                await ctx.send(
-                    "Error: Unable to initialize date poll. For some reason, the Poll object could not be created."
-                )
-                logging.exception("Failed to initialize date poll.")
-
-        elif action.lower() == "end":
-            if "date_poll" in self.active_polls.keys():  # check if poll is in active polls using new poll_id
-                await self.active_polls["date_poll"].end_poll(ctx)
-                del self.active_polls["date_poll"]
-            else:
-                await ctx.send("No active date poll in this channel.")
+    @date_poll.command(name="end")
+    async def date_poll_end(self, ctx):
+        """End the active date poll."""
+        if "date_poll" in self.active_polls.keys():
+            await self.active_polls["date_poll"].end_poll(ctx)
+            del self.active_polls["date_poll"]
         else:
-            await ctx.send('Invalid action. Use "start" or "end".')
+            await ctx.send("No active date poll in this channel.")
 
-    @date.command(name="votes")
+    @date_poll.command(name="votes")
     async def date_poll_votes(self, ctx):
         """List the date poll voters for each date."""
-        # Access the poll if active
         date_poll = self.active_polls.get("date_poll")
         if not date_poll:
             await ctx.send("No active date poll.")
@@ -164,45 +177,43 @@ class MovieClub(commands.Cog):
     @commands.guild_only()  # type:ignore
     @commands.bot_has_permissions(embed_links=True)
     @commands.mod_or_permissions(manage_messages=True)
-    @poll.command(name="movie")
-    async def movie_poll(self, ctx, action: str):
-        if action.lower() == "start":
-            logging.debug(f"movie command received with action={action}")
-            try:
-                stored_movies = await self.config.guild(ctx.guild).movies()
-                if stored_movies:
-                    poll = MoviePoll(self.bot, self.config, ctx.guild)
-                    await poll.write_poll_to_config()
-                    await poll.start_poll(ctx, action, stored_movies)
-                    self.active_polls["movie_poll"] = poll
-                else:
-                    await ctx.send(
-                        "No movies found in the movie poll. Please add movies using the `movie add` command."
-                    )
+    @poll.group(name="movie")
+    async def movie_poll(self, ctx):
+        """
+        This is now a group for movie poll commands.
+        Example usage:
+          !movieclub poll movie start
+          !movieclub poll movie end
+          !movieclub poll movie votes
+        """
+        if ctx.invoked_subcommand is None:
+            await ctx.send("Available subcommands: start, end, votes")
 
-            except AttributeError:
-                await ctx.send(
-                    "Error: Unable to initialize movie poll. For some reason, the Poll object could not be created."
-                )
-                logging.exception("Failed to initialize movie poll.")
-
-        elif action.lower() == "end":
-            logging.debug(f"movie command received with action={action}")
-            if "movie_poll" in self.active_polls.keys():  # check if poll is in active polls using new poll_id
-                await self.active_polls["movie_poll"].end_poll(ctx)
-                # TODO: REMOVE THIS WHEN CODE COMPLETE
-                # Clear the movies in the Guild Config after starting the poll:
-                await self.config.guild(ctx.guild).movies.clear()
-                del self.active_polls["movie_poll"]  # remove poll from active polls using new poll_id
-            else:
-                await ctx.send("No active movie poll in this channel.")
-        elif action.lower() == "votes":
-            if "movie_poll" in self.active_polls.keys():
-                await self.active_polls["movie_poll"].get_vote_progress(ctx)
-            else:
-                await ctx.send("No active movie poll in this channel.")
+    @movie_poll.command(name="start")
+    async def movie_poll_start(self, ctx):
+        """Start the active movie poll."""
+        logging.debug("movie_poll start command")
+        stored_movies = await self.config.guild(ctx.guild).movies()
+        if stored_movies:
+            poll = MoviePoll(self.bot, self.config, ctx.guild)
+            await poll.write_poll_to_config()
+            await poll.start_poll(ctx, "start", stored_movies)
+            self.active_polls["movie_poll"] = poll
         else:
-            await ctx.send('Invalid action. Use "start" or "end".')
+            await ctx.send("No movies found in the poll. Please add movies using `/movieclub movie add <movie_name>`.")
+
+    @movie_poll.command(name="end")
+    async def movie_poll_end(self, ctx):
+        """End the active movie poll."""
+        logging.debug("movie_poll end command")
+        if "movie_poll" in self.active_polls:
+            await self.active_polls["movie_poll"].end_poll(ctx)
+            # Optionally clear the poll or stored movies here
+            await self.config.guild(ctx.guild).movies.clear()
+            del self.active_polls["movie_poll"]
+            await ctx.send("Movie poll has ended and cleared.")
+        else:
+            await ctx.send("No active movie poll in this channel.")
 
     @movie_poll.command(name="votes")
     async def movie_poll_votes(self, ctx):
