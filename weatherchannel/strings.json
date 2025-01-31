@@ -5,11 +5,20 @@
       "service": { 
         "invalid_coords_format": "Invalid coordinates format for {city}.",
         "coords_conversion_error": "Error in coordinates format for {city}.",
-        "weather_fetch_error": "Error fetching weather for {city}."
+        "weather_fetch_error": "Error fetching weather for {city}.",
+        "no_weather_data": "No weather data available for the requested location(s)."
         }
     },
     "messages": {
       "weather_channel_set_success": "Weather reports to {channel_mention}."
     },
-    "weather_report_title": "Weather Report"
+    "weather_report_title": "Weather Report",
+    "commands": {
+        "weather": {
+            "now": {
+                "description": "Get current weather information. Shows all locations if none specified.",
+                "param_location": "Location to get weather information for (defaults to all locations)"
+            }
+        }
+    }
   }

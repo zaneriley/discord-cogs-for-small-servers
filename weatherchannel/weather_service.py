@@ -29,7 +29,6 @@ class WeatherService:
             error_msg = f"Unsupported API type: {api_type}"
             logger.error(error_msg)
             raise ValueError(error_msg)
-        
         return WeatherFormatter(formatter=formatter)
 
     async def fetch_weather(self, api_type: str, coords, city: str):

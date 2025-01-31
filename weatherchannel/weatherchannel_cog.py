@@ -14,15 +14,13 @@ from redbot.core import commands
 from utilities.text_formatting_utils import format_row, get_max_widths
 
 from .config import ConfigManager
-from .weather_api import (
-    WeatherAPIFactory,  # While this import is here, it's not directly used in this cog anymore. WeatherService now manages API factory. Keeping for now, can be removed later.
-)
 from .weather_service import WeatherService
 
 logger = logging.getLogger(__name__)
 
 
 class WeatherChannel(commands.Cog):
+
     """A cog for reporting weather conditions."""
 
     def __init__(self, bot):
@@ -30,7 +28,6 @@ class WeatherChannel(commands.Cog):
         self.guild_id = int(os.getenv("GUILD_ID"))
         self.strings = self.load_strings()  # Load strings first so WeatherService can use them
         self.weather_service = WeatherService(self.strings)  # Pass strings to WeatherService
-        self.weather_api = WeatherAPIFactory.create_weather_api_handler("weather-gov") # This line is likely not needed anymore, factory is used in service
         self.config_manager = ConfigManager(self.guild_id, self)
         self.api_handlers = {}  # Initialize the api_handlers dictionary - also likely not needed here, service handles it.
         self.on_forecast_task_complete.start()
@@ -81,8 +78,15 @@ class WeatherChannel(commands.Cog):
 
     weather = app_commands.Group(name="weather", description="Commands related to weather information")
 
-    @weather.command(name="today", description="Get current weather information")
-    @app_commands.describe(location="Location to get weather information for")
+    @weather.command(
+        name="now",
+        # These need to be literals for Discord.py
+        description="Get current weather information. Shows all locations if none specified."
+    )
+    @app_commands.describe(
+        # This also needs to be a literal
+        location="Location to get weather information for (defaults to all locations)"
+    )
     @app_commands.choices(
         location=[
             app_commands.Choice(name="San Francisco", value="San Francisco"),
@@ -95,24 +99,30 @@ class WeatherChannel(commands.Cog):
     )
     async def weather_now(self, interaction: discord.Interaction, location: str | None = None):
         """Get the current weather!"""
+        # Default to "Everywhere" if no location specified
+        location = location or "Everywhere"
+
         # Retrieve default locations
         default_locations = await self.config_manager.get_default_locations(self.guild_id)
 
         if location == "Everywhere":
             # Fetch weather for all locations
             forecasts = await asyncio.gather(
-                *[self.weather_service.fetch_weather(api_type, coords, city) for city, (api_type, coords) in default_locations.items()]
+                *[self.weather_service.fetch_weather(api_type, coords, city) 
+                  for city, (api_type, coords) in default_locations.items()]
             )
-            forecasts = [f for f in forecasts if isinstance(f, dict) and "error" not in f] # Filter out error dicts
+            forecasts = [f for f in forecasts if isinstance(f, dict) and "error" not in f]
             keys = ["ᴄɪᴛʏ", "ʜ°ᴄ", "ʟ°ᴄ", "ᴘʀᴇᴄɪᴘ"]
         elif location in default_locations:
             # Fetch weather for the specified location
             api_type, coords = default_locations[location]
-            forecast_response = await self.weather_service.fetch_weather(api_type, coords, location) # get the dict, which might be an error dict
+            forecast_response = await self.weather_service.fetch_weather(api_type, coords, location)
             if "error" in forecast_response:
-                await interaction.response.send_message(forecast_response["error"], ephemeral=True) # Send error message to user
+                await interaction.response.send_message(
+                    forecast_response["error"], ephemeral=True
+                )
                 return
-            forecasts = [forecast_response]  # Wrap it in a list to use the same formatting logic
+            forecasts = [forecast_response]
             keys = ["ᴄɪᴛʏ", "ᴄᴏɴᴅ", "ʜ°ᴄ", "ʟ°ᴄ", "ᴘʀᴇᴄɪᴘ"]
         else:
             await interaction.response.send_message(
@@ -121,9 +131,12 @@ class WeatherChannel(commands.Cog):
             return
 
         # Format the data
-        table_data = [forecast for forecast in forecasts if isinstance(forecast, dict)] # Re-filter in case of "Everywhere" and some errors
-        if not table_data: # Handle case where no valid forecast data is available (all errors, or no locations)
-            await interaction.response.send_message("No weather data available for the requested location(s).", ephemeral=True)
+        table_data = [forecast for forecast in forecasts if isinstance(forecast, dict)]
+        if not table_data:
+            await interaction.response.send_message(
+                self.strings["errors"]["service"]["no_weather_data"],
+                ephemeral=True
+            )
             return
 
         alignments = ["left"] * len(keys)
@@ -132,7 +145,6 @@ class WeatherChannel(commands.Cog):
         rows = [format_row(row, keys, widths, alignments) for row in table_data]
         table_string = header + "\n" + "\n".join(rows)
 
-        # Send the formatted data
         await interaction.response.send_message(f"`{table_string}`")
 
     async def forecast_task(self):
