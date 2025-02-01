@@ -20,6 +20,7 @@ Next:
 - [ ] **Member Stats**: Track and display user activity and engagement on the server.
 
 <img src="https://github.com/zaneriley/discord-cogs-for-small-servers/assets/2167062/1feb3dbe-4818-479b-a93c-2f390ad43186" alt="SeasonalRoles" width="300"/>
+
 Automatically assign and remove roles based on specified holidays and events.
 
 - [x] Assigns and removes roles based on defined holidays (currently semi-fictitious holidays)
