@@ -6,3 +6,4 @@ aiofiles
 asyncio
 pillow
 wcwidth
+aiohttp>=3.8.1
