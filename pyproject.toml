@@ -1,7 +1,7 @@
 [tool.ruff]
 # match black
-line-length = 120
-target-version = "py311"
+line-length = 88
+target-version = "py39"
 
 lint.select = [
     "ALL", # include all the rules, including new ones
@@ -42,3 +42,6 @@ lint.ignore = [
     "TD003",
     "FIX002", # too verbose descriptions of todos
 ]
+
+per-file-ignores = {}    # Enforce rule checks uniformly across the codebase
+# Additional configuration options can be added here.
