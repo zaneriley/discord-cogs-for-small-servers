@@ -177,8 +177,17 @@ class WeatherChannel(commands.Cog):
             rows = [format_row(row, keys, widths, alignments) for row in table_data]
             table_string = header + "\n" + "\n".join(rows)
 
-            await channel.send(f"{self.strings['weather_report_title']}\n`{table_string}\n`",
-                               allowed_mentions=discord.AllowedMentions.none())
+            # Generate AI summary
+            summary = await self.weather_service.get_weather_summary(table_data)
+            
+            # Build final message
+            message_content = (
+                f"{self.strings['weather_report_title']}\n"
+                f"`{table_string}`"
+                f"{summary if summary else ''}"
+            )
+            
+            await channel.send(message_content, allowed_mentions=discord.AllowedMentions.none())
         else:
             logger.warning("Weather channel not found.")
 

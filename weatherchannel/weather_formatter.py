@@ -2,6 +2,9 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import ClassVar
+import json
+from cogs.utilities.llm.llm_utils import create_llm_chain
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +67,7 @@ class OpenMeteoFormatter(WeatherFormatterInterface):
 
 
 class WeatherGovFormatter(WeatherFormatterInterface):
-    def __init__(self):
+    def __init__(self, strings):
         self.icon_map = {
             "Sunny": "☀",
             "Clear": "◯",
@@ -107,6 +110,8 @@ class WeatherGovFormatter(WeatherFormatterInterface):
             "Frigid": "❆",
             "Warm": "♨",
         }
+        self.llm_chain = create_llm_chain()
+        self.strings = strings
 
     def format_individual_forecast(self, weather_data, city_name=None):
         if not weather_data:
@@ -152,6 +157,22 @@ class WeatherGovFormatter(WeatherFormatterInterface):
             else:
                 precipitation = f"{precipitation_value}%"
 
+            detailed_data = {
+                "current_temp": daytime_period["temperature"],
+                "conditions": daytime_period["detailedForecast"],
+                "wind": daytime_period["windSpeed"],
+                "humidity": daytime_period["relativeHumidity"]["value"],
+                "uv_index": daytime_period.get("uvIndex", "N/A")
+            }
+            
+            forecast = {
+                "ᴄɪᴛʏ": f"{city_code}  ",
+                "ᴄᴏɴᴅ": f"{short_forecast}  ",
+                "ʜ°ᴄ": f"{temperature_c_high}°  ",
+                "ʟ°ᴄ": f"{temperature_c_low}°  ",
+                "ᴘʀᴇᴄɪᴘ": f"{precipitation}",
+                "ᴅᴇᴛᴀɪʟs": json.dumps(detailed_data)  # Store for summary generation
+            }
         except KeyError:
             logger.exception("Missing key in weather data:")
             return "Incomplete weather data."
@@ -159,17 +180,38 @@ class WeatherGovFormatter(WeatherFormatterInterface):
             logger.exception("Unexpected error while formatting forecast:")
             return "Error processing weather data."
         else:
-            return {
-                    "ᴄɪᴛʏ": f"{city_code}  ",
-                    "ᴄᴏɴᴅ": f"{short_forecast}  ",
-                    "ʜ°ᴄ": f"{temperature_c_high}°  ",
-                    "ʟ°ᴄ": f"{temperature_c_low}°  ",
-                    "ᴘʀᴇᴄɪᴘ": f"{precipitation}",
-                }
+            return forecast
 
     def format_alerts(self, alerts):
         # Implement formatting for WeatherGovAPI alerts
         pass
+
+    async def generate_llm_summary(self, forecasts: list) -> str:
+        max_retries = 3
+        retry_delay = 1  # seconds
+        
+        try:
+            consolidated_data = "\n".join(
+                f"{f['ᴄɪᴛʏ'].strip()}: {json.loads(f.get('ᴅᴇᴛᴀɪʟs','{}'))}"
+                for f in forecasts
+            )
+            
+            for attempt in range(max_retries):
+                try:
+                    response = await self.llm_chain.run(
+                        self.strings["prompts"]["weather_summary"].format(data=consolidated_data),
+                        temperature=0.3
+                    )
+                    return f"\n**AI Weather Summary**\n{response.content}"
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"LLM summary attempt {attempt+1} failed: {str(e)}. Retrying in {retry_delay}s...")
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    raise
+        except Exception as e:
+            logger.error(f"LLM summary failed after {max_retries} attempts: {str(e)}")
+            return ""
 
 
 class WeatherFormatter:

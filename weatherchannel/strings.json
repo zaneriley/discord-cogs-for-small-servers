@@ -20,5 +20,8 @@
                 "param_location": "Location to get weather information for (defaults to all locations)"
             }
         }
+    },
+    "prompts": {
+        "weather_summary": "Create a concise 3-sentence weather summary from this data:\n{data}\n\nUse these guidelines:\n- Mention notable temperature swings\n- Highlight precipitation chances over 30%\n- Note any severe weather alerts\n- Use friendly, conversational tone\n- Keep under 500 characters\n- Use metric units"
     }
   }

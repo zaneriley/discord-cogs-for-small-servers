@@ -24,7 +24,7 @@ class WeatherService:
         if api_type == "open-meteo":
             formatter = OpenMeteoFormatter()
         elif api_type == "weather-gov":
-            formatter = WeatherGovFormatter()
+            formatter = WeatherGovFormatter(self.strings)
         else:
             error_msg = f"Unsupported API type: {api_type}"
             logger.error(error_msg)
@@ -74,3 +74,13 @@ class WeatherService:
                     city=city
                 )
             }
+
+    async def get_weather_summary(self, forecasts: list) -> str:
+        """Get AI-generated weather summary"""
+        try:
+            first_api_type = next(iter(self.api_handlers))  # Get first handler type
+            formatter = self._create_formatter(first_api_type)
+            return await formatter.generate_llm_summary(forecasts)
+        except Exception as e:
+            logger.error(f"Weather summary error: {str(e)}")
+            return ""
