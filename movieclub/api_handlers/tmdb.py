@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import logging
 import os
+import sys
 from typing import Any
 
 import requests
@@ -62,7 +65,7 @@ def fetch_movie_details(movie_name: str) -> dict[str, Any] | None:
 
     if not API_KEY:
         logging.error("TMDB_API_KEY not found in environment variables.")
-        exit(1)
+        sys.exit(1)
 
     # Step 1: Search for the movie to get its ID
     search_url = f"{API_BASE_URL}/search/movie"

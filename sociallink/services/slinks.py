@@ -45,7 +45,7 @@ class SLinkManager:
 
         ctx = kwargs.get("ctx")
         config = kwargs.get("config")
-        max_levels = await config.max_levels()
+        await config.max_levels()
         user = kwargs.get("user_1")
         confidant = kwargs.get("user_2")
         logger.debug("user_1: %s, user_2: %s", user, confidant)
@@ -99,8 +99,8 @@ class SLinkManager:
         role_format = await self.config.roles.get_raw("role_format")
         role_name_user1 = role_format.format(user=user.nick, level=1)
         role_name_user2 = role_format.format(user=confidant.nick, level=1)
-        role_user1 = discord.utils.get(guild.roles, name=role_name_user1)
-        role_user2 = discord.utils.get(guild.roles, name=role_name_user2)
+        discord.utils.get(guild.roles, name=role_name_user1)
+        discord.utils.get(guild.roles, name=role_name_user2)
 
         self.send_onboarding_message(user)
         # self.send_onboarding_message(confidant)
@@ -136,9 +136,9 @@ _
             """
 \n⠀
 > **Please note:** This is an early prototype of a game.
-> Not all functionality may exist, it may not even be fun, 
+> Not all functionality may exist, it may not even be fun,
 > and you may encounter bugs or incomplete features.
-> 
+>
 > See post for more info: https://discord.com/channels/947277446678470696/1092080357286883438
 > Feedback, ideas or other contributions are welcome.
 — Rye

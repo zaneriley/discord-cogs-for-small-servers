@@ -1,5 +1,7 @@
 import os
+
 import aiohttp
+
 from .base import BaseLLMProvider, LLMResponse
 
 
@@ -26,4 +28,4 @@ class OpenAIProvider(BaseLLMProvider):
                     tokens_used = data.get("usage", {}).get("total_tokens", 0)
                     return LLMResponse(content=content, tokens_used=tokens_used)
         except Exception as e:
-            return LLMResponse(content="", tokens_used=0, error=True, error_message=str(e)) 
+            return LLMResponse(content="", tokens_used=0, error=True, error_message=str(e))

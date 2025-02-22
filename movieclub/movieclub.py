@@ -1,16 +1,14 @@
 # Standard library imports
+import json
 import logging
 from collections import defaultdict
-from typing import Literal
-import asyncio
-import json
 from pathlib import Path
+from typing import Literal, Optional
 
 # Third-party library imports
 import discord
 from discord.errors import HTTPException
 from discord.ext import tasks
-from discord import app_commands
 
 # Application-specific imports
 from redbot.core import Config, commands
@@ -77,7 +75,7 @@ class MovieClub(commands.Cog):
     async def on_ready(self):
         for guild in self.bot.guilds:
             restoring_polls = await self.get_all_active_polls_from_config(guild)
-            for poll_id in restoring_polls.keys():
+            for poll_id in restoring_polls:
                 if poll_id == "date_poll":
                     self.active_polls[poll_id] = DatePoll(self.bot, self.config, guild)
                 elif poll_id == "movie_poll":
@@ -95,7 +93,8 @@ class MovieClub(commands.Cog):
         elif poll_type == "movie":
             return MoviePoll(self.config)
         else:
-            raise ValueError(f"Invalid poll_type: {poll_type}")
+            msg = f"Invalid poll_type: {poll_type}"
+            raise ValueError(msg)
 
     @commands.group()
     @commands.bot_has_permissions(send_messages=True)
@@ -129,9 +128,9 @@ class MovieClub(commands.Cog):
             await ctx.send("Available subcommands: start, end, votes")
 
     @date_poll.command(name="start")
-    async def date_poll_start(self, ctx, month: str = None):
+    async def date_poll_start(self, ctx, month: Optional[str] = None):
         """Start a date poll."""
-        if "date_poll" in self.active_polls.keys():
+        if "date_poll" in self.active_polls:
             await ctx.send("A date poll is already active.")
             return
         # Setup logic for starting the poll
@@ -144,7 +143,7 @@ class MovieClub(commands.Cog):
     @date_poll.command(name="end")
     async def date_poll_end(self, ctx):
         """End the active date poll."""
-        if "date_poll" in self.active_polls.keys():
+        if "date_poll" in self.active_polls:
             await self.active_polls["date_poll"].end_poll(ctx)
             del self.active_polls["date_poll"]
         else:
@@ -161,12 +160,12 @@ class MovieClub(commands.Cog):
         if not date_user_votes:
             await ctx.send("No votes have been cast yet.")
             return
-        
+
         lines = []
         for date_str, user_dict in date_user_votes.items():
-            user_ids = ", ".join(f"<@{u}>" for u in user_dict.keys())
+            user_ids = ", ".join(f"<@{u}>" for u in user_dict)
             lines.append(f"**{date_str}**: {user_ids}")
-        
+
         if lines:
             await ctx.send("\n".join(lines))
         else:
@@ -226,18 +225,18 @@ class MovieClub(commands.Cog):
         if not user_votes:
             await ctx.send("No votes have been cast yet.")
             return
-        
+
         # Build reverse map: {movie: [voters...]}
         from collections import defaultdict
         movie_to_voters = defaultdict(list)
         for uid, movie_name in user_votes.items():
             movie_to_voters[movie_name].append(uid)
-        
+
         results = []
         for mv, voters in movie_to_voters.items():
             mention_str = ", ".join(f"<@{u}>" for u in voters)
             results.append(f"**{mv}**: {mention_str}")
-        
+
         if not results:
             await ctx.send("No votes found.")
         else:
@@ -318,6 +317,7 @@ class MovieClub(commands.Cog):
 
         else:
             await ctx.send("Please provide a movie name.")
+            return None
 
     @commands.guild_only()
     @commands.bot_has_permissions(embed_links=True)
@@ -355,7 +355,7 @@ class MovieClub(commands.Cog):
             return
         # Attempt a case-insensitive match
         matched_key = None
-        for key in stored_movies.keys():
+        for key in stored_movies:
             if key.lower() == movie_name.lower():
                 matched_key = key
                 break

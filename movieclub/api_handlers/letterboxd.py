@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import re
@@ -25,7 +27,7 @@ def construct_search_url(movie_title: str) -> str:
         logging.info(f"Successfully constructed search URL for {search_url}.")
         return search_url
     except Exception as e:
-        logger.error(f"Failed to construct the search URL for {movie_title} due to: {e!s}")
+        logger.exception(f"Failed to construct the search URL for {movie_title} due to: {e!s}")
         return None
 
 
@@ -33,10 +35,9 @@ def scrape_search_page(search_url: str) -> BeautifulSoup | None:
     try:
         response = requests.get(search_url)
         response.raise_for_status()
-        soup = BeautifulSoup(response.content, "html.parser")
-        return soup
+        return BeautifulSoup(response.content, "html.parser")
     except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to fetch search page: {e}")
+        logger.exception(f"Failed to fetch search page: {e}")
         return None
 
 
@@ -52,7 +53,7 @@ def fetch_search_results(movie_title: str) -> list[BeautifulSoup]:
             logger.warning(f"No search results found for {movie_title}.")
         return results
     except Exception as e:
-        logger.error(f"Failed to fetch search results for {movie_title} due to: {e!s}")
+        logger.exception(f"Failed to fetch search results for {movie_title} due to: {e!s}")
         return []
 
 
@@ -78,7 +79,7 @@ def select_best_search_result(search_results: list[BeautifulSoup], film: str) ->
         logger.error(f"No suitable results found for film: {film}")
         return None
     except Exception as e:
-        logger.error(f"Failed to select best search result due to: {e!s}")
+        logger.exception(f"Failed to select best search result due to: {e!s}")
         return None
 
 
@@ -102,7 +103,8 @@ def get_validated_base_url(film: str, year: str | None = None) -> str:
         if response.status_code == 200:
             return url_without_year
 
-    raise ValueError(f"Invalid movie or year: {response.status_code} {response.reason} for URL: {response.url}")
+    msg = f"Invalid movie or year: {response.status_code} {response.reason} for URL: {response.url}"
+    raise ValueError(msg)
 
 
 def construct_url(base_url: str, url_type: str) -> str:
@@ -113,7 +115,8 @@ def construct_url(base_url: str, url_type: str) -> str:
     elif url_type == "stats":
         return f"{base_url}/likes/"
     else:
-        raise ValueError(f"Invalid url_type: {url_type}. Expected 'info', 'reviews', or 'stats'.")
+        msg = f"Invalid url_type: {url_type}. Expected 'info', 'reviews', or 'stats'."
+        raise ValueError(msg)
 
 
 def fetch_reviews(url: str) -> str | None:
@@ -123,7 +126,7 @@ def fetch_reviews(url: str) -> str | None:
         response.raise_for_status()
         return response.text
     except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to fetch reviews: {e}")
+        logger.exception(f"Failed to fetch reviews: {e}")
         return None
 
 
@@ -162,7 +165,7 @@ def parse_review_data(page_content: str) -> list[dict[str, str]]:
     return reviews
 
 
-def fetch_movie_details(film: str, year: str = None):
+def fetch_movie_details(film: str, year: str | None = None):
     film = film.lower()
     url_with_year = construct_url(film, "info")
     url_without_year = construct_url(film, "info")
@@ -248,7 +251,7 @@ def fetch_movie_details(film: str, year: str = None):
                 number_of_reviewers = None
 
             # Step 3: Data Parsing
-            movie_data = {
+            return {
                 "title": title,
                 "year_of_release": year_of_release,
                 "description": description,
@@ -262,10 +265,9 @@ def fetch_movie_details(film: str, year: str = None):
                 "banner_image": image_url,
             }
 
-            return movie_data
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to fetch data for {film} ({year}) due to: {e!s}")
+            logger.exception(f"Failed to fetch data for {film} ({year}) due to: {e!s}")
             return None
 
     else:
@@ -301,7 +303,7 @@ def fetch_letterboxd_details_wrapper(film: str) -> dict[str, str | Any]:
         requests.RequestException,
         Exception,
     ) as e:  # Catch and log possible network and parsing errors
-        logger.error(f"An error occurred while fetching movie details for {film}: {e!s}")
+        logger.exception(f"An error occurred while fetching movie details for {film}: {e!s}")
         return {}
 
 
@@ -332,7 +334,6 @@ def main() -> None:
                     movie_data = fetch_movie_details(selected_url)
                     if movie_data:
                         logger.info(f"Successfully fetched data for {film} ({year if year else ''}).")
-                        print(json.dumps(movie_data, indent=2))
                     else:
                         logger.error(f"Failed to fetch data for {film} ({year if year else ''}).")
                     # Fetching and logging reviews
@@ -343,7 +344,6 @@ def main() -> None:
                         reviews = parse_review_data(page_content)
                         if reviews:
                             logger.info(f"Successfully fetched reviews for {film} ({year if year else ''}).")
-                            print(json.dumps(reviews, indent=2))
                         else:
                             logger.warning(f"No reviews found for {film} ({year if year else ''}).")
                     else:
@@ -355,7 +355,7 @@ def main() -> None:
                 logger.error(f"Failed to fetch search results for {film} ({year if year else ''}).")
                 continue
         except ValueError as e:
-            logger.error(f"Failed to process {film} ({year if year else ''}) due to: {e!s}")
+            logger.exception(f"Failed to process {film} ({year if year else ''}) due to: {e!s}")
 
 
 if __name__ == "__main__":

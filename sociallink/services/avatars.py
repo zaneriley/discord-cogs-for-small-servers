@@ -1,12 +1,17 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 from io import BytesIO
+from typing import TYPE_CHECKING
 
 import discord
 from PIL import Image
-from redbot.core import Config, commands
 
 from utilities.discord_utils import fetch_user_avatar
+
+if TYPE_CHECKING:
+    from redbot.core import Config, commands
 
 logger = logging.getLogger(__name__)
 

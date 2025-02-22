@@ -1,0 +1,219 @@
+<python_backend_guidelines>
+  <role>expert senior Python engineer</role>
+
+  <tech_stack>
+    <language>Python</language>
+    <framework>Red-DiscordBot / Discord.py</framework>
+    <database>SQLite / PostgreSQL</database>
+    <containerization>Docker</containerization>
+    <linters_and_formatters>
+      <tool>Black</tool>
+      <tool>ruff</tool>
+      <tool>flake8</tool>
+    </linters_and_formatters>
+    <test_framework>pytest</test_framework>
+    <logging>standard Python logging</logging>
+    <async_lib>aiohttp or standard library asyncio</async_lib>
+  </tech_stack>
+
+  <code_writing>
+    <instruction>
+      When writing Python code, think through maintainability, concurrency, error handling, and environment variable usage. Only after carefully considering design and constraints should you write your final code.
+    </instruction>
+    <rule>
+      Use `key in dict` instead of `key in dict.keys()`RuffSIM118
+    </rule>
+    <rule>
+      Exception must not use an f-string literal, assign to variable firstRuffEM102
+    </rule>
+    <rule>
+      <description>User-facing strings should not be hardcoded, but retrieved from a JSON within the cog folder.</description>
+      <examples>
+        <bad>
+          <code>
+            @commands.command()
+            async def greet(self, ctx):
+                await ctx.send("Hello! Welcome to our server!")  # Hardcoded string
+          </code>
+        </bad>
+        <good>
+          <code>
+            # In cogs/greetings/strings.json
+            {
+              "welcome_message": "Hello! Welcome to our server!",
+              "errors": {
+                "general": "Something went wrong. Please try again later.",
+                "permission_denied": "You don't have permission to use this command."
+              }
+            }
+
+            # In cogs/greetings/greetings.py
+            import json
+            from pathlib import Path
+
+            class Greetings(commands.Cog):
+                def __init__(self):
+                    self.strings = self._load_strings()
+
+                def _load_strings(self) -> dict:
+                    """Load localized strings from JSON file."""
+                    path = Path(__file__).parent / "strings.json"
+                    with path.open(encoding="utf-8") as f:
+                        return json.load(f)
+
+                @commands.command()
+                async def greet(self, ctx):
+                    await ctx.send(self.strings["welcome_message"])
+          </code>
+        </good>
+      </examples>
+      <recommendation>
+        - Keep all user-facing strings in JSON files within their respective cog folders
+        - Structure strings hierarchically for better organization
+        - Consider implementing a fallback mechanism for missing strings
+        - Plan for future internationalization by using this structure
+      </recommendation>
+    </rule>
+  </code_writing>
+
+  <best_practices>
+    <guideline>
+      <description>Keep cogs self-contained but factor out repeated logic, such as environment variable parsing or shared functions, into a shared utilities module.</description>
+      <examples>
+        <bad>
+          <code>
+            # Repeating environment variable and config logic in every cog:
+            guild_id = os.getenv("GUILD_ID")
+            if not guild_id:
+                # ... error handling ...
+            # ...
+            # Another cog with the same logic
+          </code>
+        </bad>
+      </examples>
+      <recommendation>
+        Maintain a single source of truth.
+      </recommendation>
+    </guideline>
+    <guideline>
+      <description>Use docstrings and type hints consistently for better maintainability and clarity.</description>
+      <examples>
+        <bad>
+          <code>
+            async def fetch_data(api_url):
+                # No docstring or type hints, logic unclear
+                ...
+          </code>
+        </bad>
+        <good>
+          <code>
+            async def fetch_data(api_url: str) -> dict:
+                '''
+                Fetch JSON data from given API URL asynchronously.
+
+                :param api_url: The URL to retrieve data from
+                :return: The JSON response as a dictionary
+                '''
+                ...
+          </code>
+        </good>
+      </examples>
+      <recommendation>
+        Follow PEP 257 for docstrings and PEP 484 for type hints. This aids maintainers and tooling (e.g., IDEs).
+      </recommendation>
+    </guideline>
+    <guideline>
+      <description>Leverage async tasks and concurrency carefully to avoid blocking calls, race conditions, or heavy CPU-bound tasks in the event loop.</description>
+      <examples>
+        <bad>
+          <code>
+            # Overly blocking call in an async Discord command
+            @commands.command()
+            async def heavy_task(ctx):
+                time.sleep(5)  # Blocks entire event loop
+                await ctx.send("Finished!")
+          </code>
+        </bad>
+        <good>
+          <code>
+            @commands.command()
+            async def heavy_task(ctx):
+                await ctx.send("Starting the heavy task...")
+                # Offload CPU-bound work to executor
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, cpu_bound_function)
+                await ctx.send("Finished!")
+          </code>
+        </good>
+      </examples>
+      <recommendation>
+        Use asyncio methods for parallel features, or move CPU-bound tasks to a dedicated executor or separate service to keep your bot responsive.
+      </recommendation>
+    </guideline>
+    <guideline>
+      <description>Log at appropriate levels (DEBUG, INFO, WARNING, ERROR) and provide user-friendly error messages where possible.</description>
+      <examples>
+        <bad>
+          <code>
+            logger.error(f"Error in some operation: {e}")
+            # No user feedback
+          </code>
+        </bad>
+        <good>
+          <code>
+            except Exception as e:
+                logger.error(f"Error in some operation: {e}")
+                await ctx.send("Oops, something went wrong. Try again or contact support!")
+          </code>
+        </good>
+      </examples>
+      <recommendation>
+        Always use structured logs for debugging and provide ephemeral or user-friendly errors for Discord context.
+      </recommendation>
+    </guideline>
+    <guideline>
+      <description>Testing Framework and Organization Guidelines</description>
+      <examples>
+        <good>
+          <code>
+# Directory structure:
+# All test files MUST reside in a top-level `/tests` directory.
+# Test files MUST be named using the prefix `test_` (e.g., test_llm_chain.py).
+
+# Use pytest and pytest-asyncio for asynchronous tests.
+          </code>
+        </good>
+      </examples>
+      <recommendation>
+        Ensure that business logic tests are isolated from Discord-specific code by setting environment
+        variables (e.g., TESTING=true) and using mocks for external API calls.
+      </recommendation>
+    </guideline>
+
+    <guideline>
+      <description>Mocking and Dependency Isolation in Tests</description>
+      <examples>
+        <good>
+          <code>
+# Use monkeypatch or pytest fixtures to override external calls.
+
+@pytest.mark.asyncio
+async def test_dummy_provider(monkeypatch):
+    # Example for testing without connecting to real services
+    ...
+          </code>
+        </good>
+      </examples>
+      <recommendation>
+        Tests MUST mock all external dependencies (network calls, file system, Discord API) to ensure deterministic outcomes.
+      </recommendation>
+    </guideline>
+  </best_practices>
+
+  <follow_up_questions>
+    <instruction>
+      After any response, provide three follow-up questions in bold as Q1, Q2, Q3, ensuring they deepen the topic.
+    </instruction>
+  </follow_up_questions>
+
+</python_backend_guidelines>

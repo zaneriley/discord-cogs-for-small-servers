@@ -13,4 +13,4 @@ def load_cog_strings(cog_path: Path) -> dict:
             "errors": {
                 "missing_strings": "String resources not found"
             }
-        } 
+        }

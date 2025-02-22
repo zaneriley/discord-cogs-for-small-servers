@@ -1,13 +1,21 @@
+from __future__ import annotations
+
 import logging
 import os
 from typing import Any
 
+import aiohttp
 import discord
 from dotenv import load_dotenv
-import aiohttp
 
-from movieclub.api_handlers.letterboxd import construct_url, fetch_reviews, parse_review_data
-from movieclub.api_handlers.letterboxd import fetch_letterboxd_details_wrapper as fetch_letterboxd_details
+from movieclub.api_handlers.letterboxd import (
+    construct_url,
+    fetch_reviews,
+    parse_review_data,
+)
+from movieclub.api_handlers.letterboxd import (
+    fetch_letterboxd_details_wrapper as fetch_letterboxd_details,
+)
 from movieclub.api_handlers.tmdb import fetch_movie_details as fetch_tmdb_details
 
 # Load environment variables
@@ -32,7 +40,7 @@ class MovieDataFetcher:
 
     async def fetch_movie_info(self, movie_name: str):
         try:
-            async with self as fetcher:
+            async with self:
                 logging.info(f"Fetching movie data for: {movie_name}")
 
                 tmdb_details = fetch_tmdb_details(movie_name)
@@ -103,7 +111,6 @@ def movie_data_to_discord_format(movie_data: dict[str, Any]) -> dict[str, Any]:
 
         description = f"`{tagline.upper() if tagline else 'No tagline available'}`\n\n{description_text}"
 
-        author_value = "TODO"  # Value derived from movie_data, hard-coded or from an external source
         fields = [
             {
                 "name": "Details",
@@ -141,7 +148,7 @@ def movie_data_to_discord_format(movie_data: dict[str, Any]) -> dict[str, Any]:
             footer_text = f'"{footer_text}"'
             footer_icon = "https://cdn3.emoji.gg/emojis/7133-star.gif"
             embed.set_footer(text=footer_text, icon_url=footer_icon)
-        
+
         return embed
     except Exception as e:
         logging.error(f"Error in mapping movie data to discord format: {e}", exc_info=True)

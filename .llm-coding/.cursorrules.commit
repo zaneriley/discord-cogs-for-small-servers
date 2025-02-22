@@ -1,0 +1,24 @@
+  <commit_message_guidelines>
+    <structure>
+      <format>&lt;type&gt;[optional scope]: &lt;description&gt;
+
+&lt;optional body&gt;
+
+&lt;optional footer(s)&gt;</format>
+    </structure>
+    <rules>
+      <rule>Commits MUST be prefixed with a type, such as feat, fix, docs, etc., followed by an OPTIONAL scope, an OPTIONAL ! for breaking changes, then a colon and space.</rule>
+      <rule>The type feat MUST be used for adding a new feature.</rule>
+      <rule>The type fix MUST be used for bug fixes.</rule>
+      <rule>A scope MAY be specified in parentheses after the type, e.g., feat(weather): add new precipitation API.</rule>
+      <rule>A short description MUST follow the colon and space, e.g., fix: handle null location scenario correctly.</rule>
+      <rule>An optional longer body can be added one blank line after the description.</rule>
+      <rule>One or more footers MAY be added one blank line after the body, using the git trailer format (e.g., Acked-by: or BREAKING CHANGE: to indicate a breaking change).</rule>
+      <rule>If ! is used in the type/scope prefix, or "BREAKING CHANGE:" is used in the footer, it denotes a breaking change.</rule>
+      <rule>Examples:
+        feat!: remove old weather endpoints (breaking change in the API design)
+        fix(weather): handle missing config values gracefully
+      </rule>
+=      <rule>Commit messages should include a tag or note indicating that tests have been updated/added if relevant.</rule>
+    </rules>
+  </commit_message_guidelines>

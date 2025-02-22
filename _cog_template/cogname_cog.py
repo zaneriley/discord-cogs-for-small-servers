@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 class TemplateCog(commands.Cog):
     """Description of cog functionality"""
-    
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.config = ConfigManager(self)
         self.strings = load_cog_strings(Path(__file__).parent)
-        
+
         # Example task initialization
         # self.background_task.start()
 

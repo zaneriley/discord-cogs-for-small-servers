@@ -7,7 +7,9 @@ from sociallink.services.events import (
     Events,
     event_bus,  # import singleton
 )
-from sociallink.services.metrics_tracker import MetricsTracker  # Import your MetricsTracker class
+from sociallink.services.metrics_tracker import (
+    MetricsTracker,  # Import your MetricsTracker class
+)
 from utilities.image_utils import get_image_handler
 
 logger = logging.getLogger(__name__)
@@ -123,6 +125,6 @@ class ListenerManager(commands.Cog):
         for attachment in message.attachments:
             if attachment.content_type.startswith("image/") or attachment.content_type.startswith("video/"):
                 image_handler = get_image_handler(attachment.url)
-                image_data = await image_handler.fetch_image_data()
+                await image_handler.fetch_image_data()
                 # Process the image_data as needed
                 logger.info("Processed media attachment for message %s", message.id)

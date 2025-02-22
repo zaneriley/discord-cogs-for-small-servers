@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import logging
 
@@ -26,7 +28,7 @@ class MessageScheduler:
             await send_discord_message(channel_id, formatted_message)
             logger.info(f"Sent scheduled message to channel {channel_id}.")
         except Exception as e:
-            logger.error(f"Failed to send scheduled message to channel {channel_id}: {e}")
+            logger.exception(f"Failed to send scheduled message to channel {channel_id}: {e}")
 
     def _format_message(self, message: str, role_id: int | None = None) -> str:
         """
@@ -49,7 +51,8 @@ class MessageScheduler:
         """
         if trigger_time <= datetime.datetime.now():
             logger.error("Provided trigger_time is in the past. Cannot schedule message.")
-            raise ValueError("Please provide a future time for scheduling the message.")
+            msg = "Please provide a future time for scheduling the message."
+            raise ValueError(msg)
 
         try:
             self.scheduler.add_job(
@@ -60,5 +63,5 @@ class MessageScheduler:
             )
             logger.info(f"Scheduled message for channel {channel_id} at {trigger_time}.")
         except Exception as e:
-            logger.error(f"Failed to schedule message for channel {channel_id} at {trigger_time}: {e}")
+            logger.exception(f"Failed to schedule message for channel {channel_id} at {trigger_time}: {e}")
             raise

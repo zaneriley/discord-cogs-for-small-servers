@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 
 from dotenv import load_dotenv
@@ -5,14 +7,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import logging
+from typing import TYPE_CHECKING
 
 import discord
 from discord import app_commands
 from discord.errors import Forbidden, HTTPException, NotFound
 from redbot.core import Config, commands
-from redbot.core.bot import Red
 
 from .dialogs import DialogManager
+
+if TYPE_CHECKING:
+    from redbot.core.bot import Red
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -136,7 +141,7 @@ class Onboarding(commands.Cog):
     @rpg_group.command(name="start", description="Join the game")
     async def start(self, interaction: discord.Interaction):
         try:
-            user_data = self.get_or_create_user_data(interaction.user.id, interaction.guild.id)
+            self.get_or_create_user_data(interaction.user.id, interaction.guild.id)
             # ... rest of your logic ...
 
         except (HTTPException, NotFound, Forbidden):

@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC, datetime
+from typing import Optional
 
 import discord
 
@@ -22,7 +23,7 @@ class JournalManager(Observer):
         initiator: discord.Member,
         confidant: discord.Member,
         timestamp: datetime,
-        details: str = None,
+        details: Optional[str] = None,
     ) -> tuple:
         """
         Creates a social link journal entry based on a Discord interaction and confirms its addition.

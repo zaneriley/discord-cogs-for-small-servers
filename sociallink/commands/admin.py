@@ -23,7 +23,7 @@ class AdminManager(commands.Cog):
         max_levels = await self.config.max_levels()
         decay_rate = await self.config.decay_rate()
         decay_interval = await self.config.decay_interval()
-        events_config = await self.config.guild(ctx.guild).all()
+        await self.config.guild(ctx.guild).all()
 
         levels_points = []
         total_points = 0

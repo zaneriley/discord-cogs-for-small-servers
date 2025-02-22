@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import logging
 import random
 import re
 from collections import defaultdict
-from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import discord
 from discord import Button, ButtonStyle, ui
@@ -15,6 +17,9 @@ from movieclub.api_handlers.movie_data_fetcher import movie_data_to_discord_form
 from movieclub.classes.poll import Poll
 from movieclub.constants import MOVIE_CLUB_LOGO
 from utilities.discord_utils import create_discord_thread
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 MAX_BUTTON_LABEL_SIZE = 16
 MAX_BUTTONS_IN_ROW = 5
@@ -192,16 +197,16 @@ class MoviePoll(Poll):
 
     async def build_view(self, movie_names: Iterable[str]) -> discord.ui.View:
         view = discord.ui.View()
-        
+
         # Add each movie button
         for movie_name in movie_names:
             movie_button = self.MovieButton(label=movie_name, movie_poll=self)
             view.add_item(movie_button)
-        
+
         # Add "Can't go" button
         cannot_go_button = self.MovieButton(label="Can't Attend", movie_poll=self)
         view.add_item(cannot_go_button)
-        
+
         return view
 
     async def add_vote(self, user_id: str, movie_name: str):
@@ -308,8 +313,8 @@ class MoviePoll(Poll):
                 return
 
             all_movies = await self.get_stored_movies()
-            target_role_member_ids = set(member.id for member in target_role.members)
-            voted_member_ids = set(int(user_id) for user_id in user_votes)
+            target_role_member_ids = {member.id for member in target_role.members}
+            voted_member_ids = {int(user_id) for user_id in user_votes}
             non_voters = target_role_member_ids - voted_member_ids
 
             movie_votes: dict[str, list[str]] = {movie: [] for movie in all_movies}
@@ -343,7 +348,7 @@ class MoviePoll(Poll):
             await ctx.send(GENERAL_ERROR_MSG)
 
     class MovieButton(discord.ui.Button):
-        def __init__(self, label: str, movie_poll: "MoviePoll"):
+        def __init__(self, label: str, movie_poll: MoviePoll):
             super().__init__(style=discord.ButtonStyle.primary, label=label)
             self.movie_poll = movie_poll
 
@@ -352,7 +357,7 @@ class MoviePoll(Poll):
             unique_voters = set()
             user_votes = defaultdict(dict, await self.movie_poll.get_user_votes())
             logging.info(f"update percentage User votes: {user_votes.keys()}")
-            for user in user_votes.keys():
+            for user in user_votes:
                 unique_voters.add(user)
             logging.debug(f"update percentage unique voters: {unique_voters}")
 
@@ -360,12 +365,12 @@ class MoviePoll(Poll):
             if target_role:
                 target_role = discord.utils.get(interaction.guild.roles, id=target_role)
                 target_role_member_ids = (
-                    set(str(member.id) for member in target_role.members)
+                    {str(member.id) for member in target_role.members}
                     if target_role
                     else {interaction.guild.members}
                 )
             else:
-                target_role_member_ids = set(member.id for member in interaction.guild.members)
+                target_role_member_ids = {member.id for member in interaction.guild.members}
             logging.info(f"update percentage target role member ids: {target_role_member_ids}")
 
             unique_role_voters = unique_voters.intersection(target_role_member_ids)

@@ -36,6 +36,7 @@ class MetricsTracker:
     def calculate_metrics(self):
         if not self.metrics_enabled:
             return False, "Metrics are not enabled."
+        return None
 
     @classmethod
     async def log_event(cls, event_type, details):

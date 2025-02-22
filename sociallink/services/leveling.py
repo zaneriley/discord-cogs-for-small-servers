@@ -146,7 +146,7 @@ class LevelManager(Observer):
 
             # Calculate new levels
             user1_new_level = await self.calculate_level(user1_data["scores"][user2_id_str])
-            user2_new_level = await self.calculate_level(user2_data["scores"][user1_id_str])
+            await self.calculate_level(user2_data["scores"][user1_id_str])
 
             # Announce rank increase if applicable
             new_level_up = user1_new_level > await self.calculate_level(
@@ -224,14 +224,14 @@ class LevelManager(Observer):
             user_2_data = await config.user(user_2).all()
 
             # Get the latest journal entry for each user
-            user_1_latest_journal = (
+            (
                 sorted(user_1_data.get("journal", []), key=lambda x: x["timestamp"], reverse=True)[0].get(
                     "description", ""
                 )
                 if user_1_data.get("journal")
                 else ""
             )
-            user_2_latest_journal = (
+            (
                 sorted(user_2_data.get("journal", []), key=lambda x: x["timestamp"], reverse=True)[0].get(
                     "description", ""
                 )
@@ -257,7 +257,7 @@ class LevelManager(Observer):
             )
 
             level_up_message_user_1 = LevelManager.get_level_up_message(level, max_level, user_2)
-            level_up_message_user_2 = LevelManager.get_level_up_message(level, max_level, user_1)
+            LevelManager.get_level_up_message(level, max_level, user_1)
 
             # Send the initial message with both embeds to the channel
             await channel.send(content="## 𝙍𝘼𝙉𝙆 𝙐𝙋\n\n", embeds=[embed_for_user_2, embed_for_user_1])

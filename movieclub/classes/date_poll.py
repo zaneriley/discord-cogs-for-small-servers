@@ -1,4 +1,6 @@
 # Standard imports
+from __future__ import annotations
+
 import calendar
 import datetime
 import logging
@@ -9,10 +11,9 @@ import discord
 
 # Third-party library imports
 from dateutil.relativedelta import SU, relativedelta  # Import SU (Sunday)
-from discord.ext import tasks
 from discord import ButtonStyle, Embed, ui
 from discord.errors import HTTPException
-from discord.ext import commands
+from discord.ext import commands, tasks
 from holidays.countries.united_states import UnitedStates
 
 # Application-specific imports
@@ -26,8 +27,7 @@ def last_days_of_month(input_date: date, final_days: int = 14) -> list[date]:
     _, last_day = calendar.monthrange(input_date.year, input_date.month)
     last_date = date(input_date.year, input_date.month, last_day)  # Corrected
     first_date = last_date - timedelta(days=final_days)
-    dates = [first_date + timedelta(days=i) for i in range(final_days + 1)]
-    return dates
+    return [first_date + timedelta(days=i) for i in range(final_days + 1)]
 
 
 def get_filtered_candidate_dates(candidate_dates: list[date], us_holidays: set[date]) -> list[date]:
@@ -91,7 +91,7 @@ class CustomHolidays(UnitedStates):
         self[date(year, 9, 21)] = "September 21st"
 
         # Add Thanksgiving Eve (Day before Thanksgiving)
-        thanksgiving = [k for k, v in self.items() if "Thanksgiving" in v][0]  # Find the date of Thanksgiving
+        thanksgiving = next(k for k, v in self.items() if "Thanksgiving" in v)  # Find the date of Thanksgiving
         thanksgiving_eve = thanksgiving - relativedelta(days=1)  # Calculate Thanksgiving Eve
         self[thanksgiving_eve] = "Thanksgiving Eve"
 
@@ -177,10 +177,10 @@ class DatePollButton(ui.Button):
         if target_role:
             target_role = discord.utils.get(interaction.guild.roles, id=target_role)
             target_role_member_ids = (
-                set(str(member.id) for member in target_role.members) if target_role else {interaction.guild.members}
+                {str(member.id) for member in target_role.members} if target_role else {interaction.guild.members}
             )
         else:
-            target_role_member_ids = set(member.id for member in interaction.guild.members)
+            target_role_member_ids = {member.id for member in interaction.guild.members}
         logging.debug(f"Target role member IDs: {target_role_member_ids}")
 
         unique_role_voters = unique_voters.intersection(
@@ -210,7 +210,7 @@ class DatePollButton(ui.Button):
         await interaction.message.edit(embed=original_embed)
 
         # Send an ephemeral message to the user
-        voted_dates = [date for date in votes.keys() if user_id in date_user_votes.get(date, {})]
+        voted_dates = [date for date in votes if user_id in date_user_votes.get(date, {})]
 
         def get_sorted_presentable_dates(dates):
             datetime_dates = [
@@ -365,7 +365,7 @@ class DatePoll(Poll):
             if len(votes) == 0:
                 await ctx.send("The poll was manually closed. No one voted in this poll.")
                 return
-            
+
             max_votes = max(votes.values())
             most_voted_dates = [date for date, vote_count in votes.items() if vote_count == max_votes]
             if len(most_voted_dates) > 1:
@@ -378,18 +378,18 @@ class DatePoll(Poll):
                 presentable_date = DateUtil.get_presentable_date(date_to_check)
                 str_date_to_check = date_to_check.strftime("%Y-%m-%d")
                 user_votes = date_user_votes.get(str_date_to_check, {})
-                user_ids = ", ".join(f"<@{user_id}>" for user_id in user_votes.keys())
+                user_ids = ", ".join(f"<@{user_id}>" for user_id in user_votes)
                 tied_message += f"**{presentable_date}**\nAvailable: {user_ids}\n\n"
 
             # gather user IDs from date_user_votes
             all_voters = set()
-            for date_str, user_dict in date_user_votes.items():
+            for user_dict in date_user_votes.values():
                 # user_dict is { user_id: <stuff> }
                 all_voters.update(user_dict.keys())
 
             # Build a mention for each:
             mention_list = " ".join(f"<@{uid}>" for uid in all_voters)
-            
+
             # your existing tied_message ...
             tied_message += f"\nThanks for participating! Shoutout to: {mention_list}"
 

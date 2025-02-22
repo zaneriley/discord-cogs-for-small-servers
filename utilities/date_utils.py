@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import date, datetime
 
 from dateutil.relativedelta import relativedelta
@@ -19,7 +21,8 @@ class DateUtil:
         elif isinstance(input_date, date):
             return input_date
         else:
-            raise TypeError("input_date must be a datetime.datetime or datetime.date instance")
+            msg = "input_date must be a datetime.datetime or datetime.date instance"
+            raise TypeError(msg)
 
     @staticmethod
     def get_presentable_date(input_date: date) -> str:
@@ -52,7 +55,7 @@ class DateUtil:
         return date.today()
 
     @staticmethod
-    def get_year_month(month: str, year: int = None) -> date:
+    def get_year_month(month: str, year: int | None = None) -> date:
         """Returns a date object for the first day of the specified '%B' or '%b' month"""
         year = year if year else DateUtil.now().year
         try:

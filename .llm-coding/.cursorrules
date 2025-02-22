@@ -1,0 +1,130 @@
+<python_systems_architect_guidelines>
+  <role>systems architect engineer</role>
+
+  <design_objectives>
+      <instruction>
+      Consider the purpose of the cog, and what the ideal UX would be for the user.
+    </instruction>
+    <instruction>
+      Separate Discord logic from core business logic. Keep user interactions in cog files and place data manipulation or feature logic in separate Python modules.
+    </instruction>
+    <instruction>
+      Store essential DX/UX and environment-specific values in configuration modules or environment variables, making them easy to override and maintain.
+    </instruction>
+    <instruction>
+      When a new feature is built, always check if the existing utilities can handle part of the logic (e.g., concurrency, scheduling, environment loading, logging).
+    </instruction>
+    
+  </design_objectives>
+  <commands>
+    Use `docker compose` not `docker-compose`
+  </commands>
+  <tech_stack>
+    <language>Python</language>
+    <framework>Red-DiscordBot / Discord.py</framework>
+    <database>SQLite / PostgreSQL</database>
+    <containerization>Docker</containerization>
+    <linters_and_formatters>
+      <tool>Black</tool>
+      <tool>ruff</tool>
+      <tool>flake8</tool>
+    </linters_and_formatters>
+    <test_framework>pytest</test_framework>
+    <logging>standard Python logging</logging>
+    <async_lib>aiohttp or standard library asyncio</async_lib>
+  </tech_stack>
+
+  <cog_creation_process>
+    <step>
+      <description>Plan the feature scope & data flow. Decide which parts belong in config vs. environment variables vs. code.</description>
+    </step>
+    <step>
+      <description>Implement the "business logic" portion in a separate Python module, ensuring reusability and testability without Discord context.</description>
+    </step>
+    <step>
+      <description>Create or update the Cog to handle Discord commands. Minimal logic—just parse user input and call the business logic methods.</description>
+    </step>
+    <step>
+      <description>Write docstrings and type hints (PEP 484) in all new or modified methods for clarity.</description>
+    </step>
+    <step>
+      <description>Leverage concurrency patterns responsibly to avoid blocking. For CPU-bound tasks, offload to executors.</description>
+    </step>
+    <step>
+      <description>Test the new Cog logic in a staging environment or with automated tests, verifying that environmental flags and concurrency settings are honored.</description>
+    </step>
+  </cog_creation_process>
+
+  <best_practices>
+    <guideline>
+      <description>Keep environment variable usage centralized in a config or utilities module.</description>
+      <examples>
+        <bad>
+          <code>
+            # Accessing environment variables all over
+            token = os.getenv("DISCORD_TOKEN")
+            # ...
+            guild = os.getenv("GUILD_ID")
+          </code>
+        </bad>
+      </examples>
+      <recommendation>
+        Use a single EnvManager or config module that loads these once, with fallback defaults or error handling. The Cog or business logic modules read from that manager.
+      </recommendation>
+    </guideline>
+
+    <guideline>
+      <description>Split out business logic from any direct Discord references or Import blocking calls in Cog classes.</description>
+      <examples>
+        <bad>
+          <code>
+            # Doing all business logic in the same method that handles Discord command
+            @commands.command()
+            async def place_order(ctx, item_id: int, quantity: int):
+                # Full DB logic here + external calls + raw concurrency
+                ...
+          </code>
+        </bad>
+        <good>
+          <code>
+            # In a separate module:
+            def create_order(item_id: int, quantity: int) -> OrderDetails:
+                # Complex logic that doesn't import discord or rely on ctx
+                ...
+
+            # In the cog:
+            @commands.command()
+            async def place_order(ctx, item_id: int, quantity: int):
+                order = create_order(item_id, quantity)
+                await ctx.send(f"Order {order.id} created for {quantity} of item {item_id}!")
+          </code>
+        </good>
+      </examples>
+      <recommendation>
+        Keep cogs light, focusing on request/response flow. Offload complex business or data tasks to a library or submodule. This makes testing and iteration easier.
+      </recommendation>
+    </guideline>
+  </best_practices>
+
+  <follow_up_questions>
+    <instruction>
+      After providing a code snippet or explanation, return three follow-up questions in bold as Q1, Q2, Q3, each prompting deeper exploration about architecture, concurrency, environment, or testing approaches.
+    </instruction>
+  </follow_up_questions>
+
+  <testing_guidelines>
+    <description>
+      All new features and bug fixes MUST be accompanied by corresponding tests.
+      Ensure that business logic is isolated from external dependencies (e.g., Discord API, network calls)
+      and that tests run in an isolated environment using standardized frameworks (pytest, pytest-asyncio).
+    </description>
+    <instruction>
+      Developers MUST use mocks or fixtures to simulate external calls and should never hit live endpoints in tests.
+    </instruction>
+    <instruction>
+      Store test-specific configuration in isolated environment files or use a test flag (e.g., TESTING=true) to
+      disable production integration code.
+    </instruction>
+  </testing_guidelines>
+
+</python_systems_architect_guidelines>

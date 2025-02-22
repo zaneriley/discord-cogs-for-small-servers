@@ -1,15 +1,21 @@
+from __future__ import annotations
+
 import logging
 import os
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import aiofiles
 import aiohttp
 import discord
 from discord import ForumTag, HTTPException, NotFound, TextChannel
-from discord.ext.commands import Context
 from discord.ui import Item, Modal, View
 
 from utilities.image_utils import get_image_handler
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from discord.ext.commands import Context
 
 logger = logging.getLogger(__name__)
 
@@ -93,14 +99,14 @@ async def create_discord_thread(
 
     except NotFound:
         await ctx.send("Channel not found.")
-        logger.error(f"Channel {channel_id} not found. Context: {ctx}")
+        logger.exception(f"Channel {channel_id} not found. Context: {ctx}")
     except HTTPException:
         await ctx.send(THREAD_CREATION_ERROR)
-        logger.error(f"HTTPException while creating thread in channel {channel_id}.")
+        logger.exception(f"HTTPException while creating thread in channel {channel_id}.")
     except AttributeError as ae:
-        logger.error(f"AttributeError: {ae}. Object: {thread}")
+        logger.exception(f"AttributeError: {ae}. Object: {thread}")
     except Exception as e:
-        logger.error(f"Unexpected error creating thread in channel {channel_id}: {e} Thread object: {thread}")
+        logger.exception(f"Unexpected error creating thread in channel {channel_id}: {e} Thread object: {thread}")
         await ctx.send(THREAD_CREATION_ERROR)
 
 
@@ -189,7 +195,8 @@ async def create_discord_modal(
         if items:
             if len(items) > MAX_ITEMS_LIMIT:
                 logger.error(f"Too many items provided for modal with custom_id: {custom_id}")
-                raise ValueError("Too many items provided for the modal.")
+                msg = "Too many items provided for the modal."
+                raise ValueError(msg)
             for item in items:
                 modal.add_item(item)
             logger.debug(f"{len(items)} items added to modal with custom_id: {custom_id}")
@@ -212,17 +219,17 @@ async def create_discord_modal(
         return modal
 
     except HTTPException as http_err:
-        logger.error(f"HTTP error while creating modal {custom_id}: {http_err}")
+        logger.exception(f"HTTP error while creating modal {custom_id}: {http_err}")
         if on_error_callback:
             await on_error_callback(ctx, http_err)
         return None
     except ValueError as val_err:
-        logger.error(f"Value error while creating modal {custom_id}: {val_err}")
+        logger.exception(f"Value error while creating modal {custom_id}: {val_err}")
         if on_error_callback:
             await on_error_callback(ctx, val_err)
         return None
     except Exception as e:
-        logger.error(f"Unexpected error creating modal {custom_id}: {e}")
+        logger.exception(f"Unexpected error creating modal {custom_id}: {e}")
         if on_error_callback:
             await on_error_callback(ctx, e)
         return None
@@ -256,10 +263,10 @@ async def fetch_and_save_guild_banner(guild, save_path):
                     logger.error(f"Failed to fetch guild banner: HTTP {response.status}")
                     return None
     except aiohttp.ClientError as e:
-        logger.error(f"Client error occurred while fetching the guild banner: {e}")
+        logger.exception(f"Client error occurred while fetching the guild banner: {e}")
         return None
     except Exception as e:
-        logger.error(f"General error fetching guild banner: {e}")
+        logger.exception(f"General error fetching guild banner: {e}")
         return None
 
 

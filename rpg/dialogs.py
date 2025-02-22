@@ -23,7 +23,7 @@ class DialogManager:
                 with open(self.dialogs_path, encoding="utf-8") as file:
                     return json.load(file)
             except json.JSONDecodeError:
-                logger.error(f"Error decoding JSON from {self.dialogs_path}")
+                logger.exception(f"Error decoding JSON from {self.dialogs_path}")
                 return {}
         else:
             logger.error(f"Dialog file {self.dialogs_path} does not exist!")
@@ -48,7 +48,8 @@ class DialogManager:
         """
         dialog = self.dialogs.get(dialog_id)
         if not dialog:
-            raise DialogNotFoundError(f"Dialog ID '{dialog_id}' not found.")
+            msg = f"Dialog ID '{dialog_id}' not found."
+            raise DialogNotFoundError(msg)
         return dialog
 
     def reload_dialogs(self) -> None:

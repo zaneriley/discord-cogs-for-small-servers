@@ -258,7 +258,7 @@ class SocialLink(commands.Cog):
     async def confidants(self, ctx: commands.Context):
         """Check your bonds with friends and allies."""
         message = await self.confidants_manager.confidants(ctx)
-        allowed_mentions = AllowedMentions(everyone=False, users=False, roles=False)
+        AllowedMentions(everyone=False, users=False, roles=False)
         if ctx.interaction:
             await ctx.interaction.response.send_message(message, ephemeral=True)
         else:

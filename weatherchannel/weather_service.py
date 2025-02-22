@@ -1,11 +1,9 @@
-import asyncio
 import logging
-from typing import Dict, Any
 
 from .weather_api import WeatherAPIFactory
 from .weather_formatter import (
-    WeatherFormatter,
     OpenMeteoFormatter,
+    WeatherFormatter,
     WeatherGovFormatter,
 )
 
@@ -65,7 +63,7 @@ class WeatherService:
             return weather_formatter.format_individual_forecast(weather_data, city)
 
         except ValueError as e:
-            logger.error("Formatter creation failed: %s", str(e))
+            logger.exception("Formatter creation failed: %s", str(e))
             return {"error": str(e)}
         except Exception:
             logger.exception("Error processing forecast for %s:", city)
@@ -82,5 +80,5 @@ class WeatherService:
             formatter = self._create_formatter(first_api_type)
             return await formatter.generate_llm_summary(forecasts)
         except Exception as e:
-            logger.error(f"Weather summary error: {str(e)}")
+            logger.exception(f"Weather summary error: {e!s}")
             return ""

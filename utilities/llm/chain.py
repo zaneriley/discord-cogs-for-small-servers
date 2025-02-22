@@ -1,6 +1,6 @@
-import time
 import logging
-from typing import List, Callable
+import time
+from typing import Callable
 
 from .providers.base import BaseLLMProvider, LLMResponse
 
@@ -13,9 +13,11 @@ class LLMNode:
         Initializes the LLMNode.
 
         Args:
+        ----
             name (str): A unique name for this node (for logging/debugging).
             provider (BaseLLMProvider): An instance of a provider that implements send_prompt.
             prompt_modifier (Callable[[str], str], optional): A function to modify the input prompt. Defaults to the identity function.
+
         """
         self.name = name
         self.provider = provider
@@ -26,11 +28,14 @@ class LLMNode:
         Processes the input prompt by applying the prompt modifier and calling the provider's send_prompt method.
 
         Args:
+        ----
             input_prompt (str): The prompt to process.
             kwargs: Additional arguments to pass to the provider.
 
         Returns:
+        -------
             LLMResponse: The response from the provider.
+
         """
         modified_prompt = self.prompt_modifier(input_prompt)
         logger.debug(f"[{self.name}] Modified prompt: {modified_prompt}")
@@ -40,13 +45,15 @@ class LLMNode:
 
 
 class LLMChain:
-    def __init__(self, nodes: List[LLMNode], debug: bool = False):
+    def __init__(self, nodes: list[LLMNode], debug: bool = False):
         """
         Initializes an LLMChain with a sequence of LLMNodes.
 
         Args:
+        ----
             nodes (List[LLMNode]): The nodes in the chain, in processing order.
             debug (bool, optional): Flag to enable debug logging. Defaults to False.
+
         """
         self.nodes = nodes
         self.debug = debug
@@ -56,11 +63,14 @@ class LLMChain:
         Runs the chain by passing the prompt through each node sequentially.
 
         Args:
+        ----
             initial_prompt (str): The initial prompt.
             kwargs: Additional arguments passed to each node's process.
 
         Returns:
+        -------
             LLMResponse: The final response after processing all nodes.
+
         """
         debug_data = {}
         data = initial_prompt
@@ -89,4 +99,4 @@ class LLMChain:
             debug_data["total_latency"] = overall_elapsed
             logger.debug(f"LLMChain debug data: {debug_data}")
         # Aggregate token usage could be implemented here; currently set to 0
-        return LLMResponse(content=data, tokens_used=0) 
+        return LLMResponse(content=data, tokens_used=0)

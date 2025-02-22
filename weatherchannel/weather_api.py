@@ -54,7 +54,6 @@ class OpenMeteoAPI(WeatherAPIHandler):
     async def get_alerts(self, location: str):
         # Open-Meteo API doesn't have explicit alerts in the same way as weather.gov, so this is a placeholder.
         logger.warning("Alerts are not supported by Open-Meteo API.")
-        return None # Explicitly return None is okay here for clarity
 
 
 class WeatherGovAPI(WeatherAPIHandler):
@@ -98,7 +97,8 @@ class WeatherGovAPI(WeatherAPIHandler):
                 forecast_data = await response.json()
                 if "properties" not in forecast_data:
                     logger.error("Forecast data missing 'properties' key: %s", forecast_data)
-                    raise KeyError("Forecast data missing 'properties' key")
+                    msg = "Forecast data missing 'properties' key"
+                    raise KeyError(msg)
                 return forecast_data
         except aiohttp.ClientError as e:  # Catch specific aiohttp ClientError
             self._reraise_exception(e, "Error retrieving forecast data", location)

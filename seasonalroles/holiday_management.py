@@ -29,10 +29,9 @@ class HolidayService:
 
         """
         try:
-            holidays = await self.config.guild(guild).holidays()
-            return holidays
+            return await self.config.guild(guild).holidays()
         except Exception as e:
-            logger.error(f"Failed to retrieve holidays for guild {guild.name}: {e!s}")
+            logger.exception(f"Failed to retrieve holidays for guild {guild.name}: {e!s}")
             return {}
 
     async def add_holiday(self, guild, name, date, color, image=None, banner_url=None):
@@ -170,7 +169,7 @@ class HolidayService:
             logger.info(f"All holiday roles except for '{current_holiday_name}' have been removed.")
             return True, f"Removed roles: {', '.join(roles_removed)}"
         except Exception as e:
-            logger.error(f"Failed to remove holiday roles due to an error: {e!s}")
+            logger.exception(f"Failed to remove holiday roles due to an error: {e!s}")
             return False, f"An error occurred: {e!s}"
         # Final return statement to handle any missed cases
         logger.debug("Exiting remove_all_except_current_holiday_role method without specific action.")

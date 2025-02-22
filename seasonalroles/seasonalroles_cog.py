@@ -1,18 +1,23 @@
+from __future__ import annotations
+
 import logging
 import os
 import re
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import discord
 from discord.ext import tasks
 from redbot.core import Config, commands
-from redbot.core.bot import Red
 
 from utilities.discord_utils import fetch_and_save_guild_banner
 from utilities.image_utils import get_image_handler
 
 from .holiday_management import HolidayService
 from .role_management import RoleManager
+
+if TYPE_CHECKING:
+    from redbot.core.bot import Red
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -134,7 +139,7 @@ class SeasonalRoles(commands.Cog):
             await ctx.send(f"{member.display_name} is already in the {self.qualified_name}.")
 
     @member.command(name="remove")
-    async def member_remove(self, ctx, member: discord.Member | None, *, all_members: str = None):
+    async def member_remove(self, ctx, member: discord.Member | None, *, all_members: str | None = None):
         """Removes a member or all members from the opt-in list."""
         if all_members and all_members.lower() in {"everyone", "all", "everybody"}:
             await self.config.guild(ctx.guild).opt_in_users.set([])
@@ -288,7 +293,7 @@ class SeasonalRoles(commands.Cog):
 
         except Exception as e:
             await ctx.send("An error occurred while listing holidays. Please try again later.")
-            logger.error(f"Error listing holidays: {e}")
+            logger.exception(f"Error listing holidays: {e}")
 
     async def add_holiday_role(
         self,
@@ -339,7 +344,7 @@ class SeasonalRoles(commands.Cog):
             else:
                 await ctx.send(f"Dry run mode {mode_str}. Actions will now make real changes.")
         except Exception as e:
-            logger.error(f"Error in toggle_dry_run: {e}")
+            logger.exception(f"Error in toggle_dry_run: {e}")
 
     # TODO TURN INTO SLASH COMMAND
     async def toggle_seasonal_role(self, ctx: commands.Context) -> None:
@@ -397,7 +402,7 @@ class SeasonalRoles(commands.Cog):
                 return
             logger.debug(f"Retrieved holidays: {holidays}")
         except Exception as e:
-            logger.error(f"Failed to retrieve holidays from config: {e}")
+            logger.exception(f"Failed to retrieve holidays from config: {e}")
             return
 
         current_date = datetime.now().date()
@@ -489,7 +494,7 @@ class SeasonalRoles(commands.Cog):
                 logger.error("Failed to save the original banner.")
                 await ctx.send("Failed to save the original banner. Please check the logs for more details.")
         except Exception as e:
-            logger.error(f"Error saving the original banner: {e}")
+            logger.exception(f"Error saving the original banner: {e}")
             await ctx.send(f"An error occurred while saving the original banner: {e}")
 
         # Apply the holiday banner
@@ -505,7 +510,7 @@ class SeasonalRoles(commands.Cog):
                     await self.change_server_banner(guild, holiday_banner_path)
                     logger.info(f"Updated guild banner for '{holiday_name}'.")
                 except Exception as e:
-                    logger.error(f"Error updating guild banner for '{holiday_name}': {e}")
+                    logger.exception(f"Error updating guild banner for '{holiday_name}': {e}")
                     await ctx.send(f"An error occurred while updating the guild banner for '{holiday_name}': {e}")
             else:
                 await ctx.send(f"No banner specified for '{holiday_name}'.")
@@ -542,7 +547,7 @@ class SeasonalRoles(commands.Cog):
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
     @seasonal.command(name="banner")
-    async def change_server_banner_command(self, ctx, url: str = None):
+    async def change_server_banner_command(self, ctx, url: str | None = None):
         """Command to change the server banner from a URL or an uploaded image."""
         if not ctx.guild:
             await ctx.send("This command can only be used in a server.")

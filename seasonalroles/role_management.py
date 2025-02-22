@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 
@@ -30,7 +32,7 @@ class RoleManager:
                         img_data = img_file.read()
                         role_args["display_icon"] = img_data
                 except Exception as e:
-                    logger.error(f"Failed to process the image data for {name} role: {e}")
+                    logger.exception(f"Failed to process the image data for {name} role: {e}")
                     return None
             else:
                 logger.error(f"Image file not found at path: {image_path}")
@@ -42,7 +44,7 @@ class RoleManager:
                 logger.debug(f"Updated role {existing_role.name} in {guild.name}")
                 return existing_role
             except Exception as e:
-                logger.error(f"Error updating role {existing_role.name} in {guild.name}: {e}")
+                logger.exception(f"Error updating role {existing_role.name} in {guild.name}: {e}")
                 return None
         else:
             try:
@@ -50,7 +52,7 @@ class RoleManager:
                 logger.debug(f"Created role {new_role.name} in {guild.name}")
                 return new_role
             except Exception as e:
-                logger.error(f"Error creating role {name} in {guild.name}: {e}")
+                logger.exception(f"Error creating role {name} in {guild.name}: {e}")
                 return None
 
     async def assign_role_to_all_members(self, guild: discord.Guild, role: discord.Role) -> None:
@@ -75,7 +77,7 @@ class RoleManager:
                             f"[Dry Run] Would assign role '{role.name}' to {len(guild.members)} opted-in members in '{guild.name}' if not in dry run mode."
                         )
                     except discord.Forbidden:
-                        logger.error(
+                        logger.exception(
                             f"Permission error when trying to add role to member {member.name} in {guild.name}"
                         )
 
@@ -95,7 +97,7 @@ class RoleManager:
                     await member.remove_roles(role)
                     logger.debug(f"Removed role {role.name} from {member.name} in {guild.name}")
                 except discord.Forbidden:
-                    logger.error(
+                    logger.exception(
                         f"Permission error when trying to remove role from member {member.name} in {guild.name}"
                     )
 
@@ -107,7 +109,7 @@ class RoleManager:
             await role.delete()
             logger.debug(f"Deleted role {role.name} in guild {guild.name}")
         except Exception as e:
-            logger.error(f"Error deleting role {role.name} in guild {guild.name}: {e}")
+            logger.exception(f"Error deleting role {role.name} in guild {guild.name}: {e}")
 
     async def move_role_to_top_priority(self, guild: discord.Guild, role: discord.Role) -> None:
         # This works by getting the bot's highest role, then setting the role's position to one less than that
@@ -123,7 +125,7 @@ class RoleManager:
                 await guild.edit_role_positions(positions)
                 logger.debug(f"Role '{role.name}' set to position {new_position} in guild '{guild.name}'.")
             except Exception as e:
-                logger.error(f"Error setting position of role '{role.name}' in guild '{guild.name}': {e}")
+                logger.exception(f"Error setting position of role '{role.name}' in guild '{guild.name}': {e}")
         else:
             logger.warning(
                 f"Bot does not have sufficient role hierarchy to set the role position in guild '{guild.name}'."

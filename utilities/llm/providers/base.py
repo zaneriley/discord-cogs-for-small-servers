@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict
+
 
 @dataclass
 class LLMResponse:
@@ -15,4 +15,3 @@ class BaseLLMProvider(ABC):
         """
         Sends a prompt to the LLM and returns a standardized LLMResponse.
         """
-        pass 
