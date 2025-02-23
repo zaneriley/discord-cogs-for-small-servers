@@ -18,11 +18,10 @@ class DateUtil:
         """Ensures the input is a datetime.date object."""
         if isinstance(input_date, datetime):
             return input_date.date()
-        elif isinstance(input_date, date):
+        if isinstance(input_date, date):
             return input_date
-        else:
-            msg = "input_date must be a datetime.datetime or datetime.date instance"
-            raise TypeError(msg)
+        msg = "input_date must be a datetime.datetime or datetime.date instance"
+        raise TypeError(msg)
 
     @staticmethod
     def get_presentable_date(input_date: date) -> str:

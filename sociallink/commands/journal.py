@@ -17,7 +17,7 @@ class JournalManager(Observer):
 
     @classmethod
     async def create_journal_entry(
-        self,
+        cls,
         config,
         event_type,
         initiator: discord.Member,
@@ -129,7 +129,7 @@ class JournalManager(Observer):
         return None
 
     @event_bus.subscribe(Events.ON_LEVEL_UP)
-    async def handle_level_up(cls, config, *args, **kwargs):
+    async def handle_level_up(self, config, *args, **kwargs):
         logger.debug("Received event %s", kwargs)
 
         user_1 = kwargs.get("user_1")

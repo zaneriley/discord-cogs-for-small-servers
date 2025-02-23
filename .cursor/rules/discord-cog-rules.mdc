@@ -1,39 +1,7 @@
-<python_systems_architect_guidelines>
-  <role>systems architect engineer</role>
-
-  <design_objectives>
-      <instruction>
-      Consider the purpose of the cog, and what the ideal UX would be for the user.
-    </instruction>
-    <instruction>
-      Separate Discord logic from core business logic. Keep user interactions in cog files and place data manipulation or feature logic in separate Python modules.
-    </instruction>
-    <instruction>
-      Store essential DX/UX and environment-specific values in configuration modules or environment variables, making them easy to override and maintain.
-    </instruction>
-    <instruction>
-      When a new feature is built, always check if the existing utilities can handle part of the logic (e.g., concurrency, scheduling, environment loading, logging).
-    </instruction>
-    
-  </design_objectives>
-  <commands>
-    Use `docker compose` not `docker-compose`
-  </commands>
-  <tech_stack>
-    <language>Python</language>
-    <framework>Red-DiscordBot / Discord.py</framework>
-    <database>SQLite / PostgreSQL</database>
-    <containerization>Docker</containerization>
-    <linters_and_formatters>
-      <tool>Black</tool>
-      <tool>ruff</tool>
-      <tool>flake8</tool>
-    </linters_and_formatters>
-    <test_framework>pytest</test_framework>
-    <logging>standard Python logging</logging>
-    <async_lib>aiohttp or standard library asyncio</async_lib>
-  </tech_stack>
-
+---
+description: When writing code for cogs, this information is especially useful to keep in mind to achieve better code quality.
+globs: *.py, *.json
+---
   <cog_creation_process>
     <step>
       <description>Plan the feature scope & data flow. Decide which parts belong in config vs. environment variables vs. code.</description>
@@ -119,12 +87,10 @@
       and that tests run in an isolated environment using standardized frameworks (pytest, pytest-asyncio).
     </description>
     <instruction>
-      Developers MUST use mocks or fixtures to simulate external calls and should never hit live endpoints in tests.
+      Do not test discord API logic. If we must, Developers MUST use mocks or fixtures to simulate external Discord calls and should never hit live endpoints in tests.
     </instruction>
     <instruction>
       Store test-specific configuration in isolated environment files or use a test flag (e.g., TESTING=true) to
       disable production integration code.
     </instruction>
   </testing_guidelines>
-
-</python_systems_architect_guidelines>

@@ -1,0 +1,37 @@
+<python_systems_architect_guidelines>
+  <role>systems architect engineer</role>
+
+  <design_objectives>
+      <instruction>
+      Consider the purpose of the cog, and what the ideal UX would be for the user.
+    </instruction>
+    <instruction>
+      Separate Discord logic from core business logic. Keep user interactions in cog files and place data manipulation or feature logic in separate Python modules.
+    </instruction>
+    <instruction>
+      Store essential DX/UX and environment-specific values in configuration modules or environment variables, making them easy to override and maintain.
+    </instruction>
+    <instruction>
+      When a new feature is built, always check if the existing utilities can handle part of the logic (e.g., concurrency, scheduling, environment loading, logging).
+    </instruction>
+    
+  </design_objectives>
+  <commands>
+    Use `docker compose` not `docker-compose`
+  </commands>
+  <tech_stack>
+    <language>Python</language>
+    <framework>Red-DiscordBot / Discord.py</framework>
+    <database>SQLite / PostgreSQL</database>
+    <containerization>Docker</containerization>
+    <linters_and_formatters>
+      <tool>Black</tool>
+      <tool>ruff</tool>
+      <tool>flake8</tool>
+    </linters_and_formatters>
+    <test_framework>pytest</test_framework>
+    <logging>standard Python logging</logging>
+    <async_lib>aiohttp or standard library asyncio</async_lib>
+  </tech_stack>
+
+</python_systems_architect_guidelines>

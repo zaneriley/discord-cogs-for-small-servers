@@ -90,11 +90,10 @@ class MovieClub(commands.Cog):
     def create_poll(self, poll_type):
         if poll_type == "date":
             return DatePoll(self.config)
-        elif poll_type == "movie":
+        if poll_type == "movie":
             return MoviePoll(self.config)
-        else:
-            msg = f"Invalid poll_type: {poll_type}"
-            raise ValueError(msg)
+        msg = f"Invalid poll_type: {poll_type}"
+        raise ValueError(msg)
 
     @commands.group()
     @commands.bot_has_permissions(send_messages=True)
@@ -315,9 +314,8 @@ class MovieClub(commands.Cog):
             await ctx.send(f"'{movie_name}' thread has been created.")
             return message
 
-        else:
-            await ctx.send("Please provide a movie name.")
-            return None
+        await ctx.send("Please provide a movie name.")
+        return None
 
     @commands.guild_only()
     @commands.bot_has_permissions(embed_links=True)

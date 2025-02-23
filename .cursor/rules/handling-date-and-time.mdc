@@ -1,0 +1,11 @@
+---
+description: Vital rules and recommendations for handling date and datetime in Discord cogs
+globs: *.py, *.json
+---
+- Always use UTC.
+- Store all timestamps in UTC.
+- Convert to local time ONLY at UI display time.
+- Use date for calendar-based features (e.g. holidays, birthdays)
+- Use dateime with UTC for event timing and timestamps.
+- NEVER mix naive and aware datetime objects.
+- When possible, always prefer to use date_utils.py (utilities\date_utils.py) functions.

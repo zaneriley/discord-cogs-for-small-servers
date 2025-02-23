@@ -126,9 +126,8 @@ class HolidayService:
         if holiday_name.lower() in normalized_holidays:
             logger.debug(f"Holiday '{holiday_name}' found.")
             return True, None
-        else:
-            logger.warning(f"Holiday '{holiday_name}' does not exist.")
-            return False, f"Holiday '{holiday_name}' does not exist!"
+        logger.warning(f"Holiday '{holiday_name}' does not exist.")
+        return False, f"Holiday '{holiday_name}' does not exist!"
 
     async def remove_all_except_current_holiday_role(self, guild: discord.Guild, current_holiday_name: str):
         """
@@ -222,7 +221,6 @@ class HolidayService:
                 await self.role_manager.assign_role_to_all_members(guild, role)
                 await self.role_manager.move_role_to_top_priority(guild, role)
                 return True, f"Holiday role '{original_name}' applied to all members."
-            else:
-                return False, "Failed to apply the holiday role."
+            return False, "Failed to apply the holiday role."
         except discord.HTTPException as e:
             return False, f"Failed to apply holiday role due to an HTTP error: {e!s}"

@@ -565,7 +565,7 @@ class SeasonalRoles(commands.Cog):
         if not url and len(ctx.message.attachments) == 0:
             await ctx.send("Please provide a URL or upload an image.")
             return
-        elif len(ctx.message.attachments) > 0:
+        if len(ctx.message.attachments) > 0:
             if url:
                 await ctx.send("Please provide either a URL or an uploaded image, not both.")
                 return

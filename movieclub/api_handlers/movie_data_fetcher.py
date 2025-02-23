@@ -92,14 +92,13 @@ def convert_to_presentable_count(number: int) -> str:
     if number is None:
         logging.error("Number is None")
         return "N/A"
-    elif number > 1_000_000_000:
+    if number > 1_000_000_000:
         return f"{number/1_000_000_000:.1f}B"
-    elif number > 1_000_000:
+    if number > 1_000_000:
         return f"{number/1_000_000:.1f}M"
-    elif number > 1_000:
+    if number > 1_000:
         return f"{number/1_000:.1f}K"
-    else:
-        return str(number)
+    return str(number)
 
 
 def movie_data_to_discord_format(movie_data: dict[str, Any]) -> dict[str, Any]:

@@ -1,10 +1,11 @@
+import asyncio
+import json
 import logging
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import ClassVar
-import json
+
 from cogs.utilities.llm.llm_utils import create_llm_chain
-import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +59,7 @@ class OpenMeteoFormatter(WeatherFormatterInterface):
         condition = "Sunny"  # Map weather codes to conditions
         if city_name:
             return f"☀ {city_name}: {condition}, {temperature}°C"
-        else:
-            return f"{condition}, {temperature}°C"
+        return f"{condition}, {temperature}°C"
 
     def format_alerts(self, alerts):
         # Implement formatting for OpenMeteoAPI alerts
@@ -125,7 +125,6 @@ class WeatherGovFormatter(WeatherFormatterInterface):
         try:
             now = datetime.now(tz=UTC)
             current_date = now.strftime("%Y-%m-%d")
-            is_daytime = 6 <= now.hour < 18
 
             periods = weather_data["properties"].get("periods", [])
             if not periods:
@@ -164,7 +163,7 @@ class WeatherGovFormatter(WeatherFormatterInterface):
                 "humidity": daytime_period["relativeHumidity"]["value"],
                 "uv_index": daytime_period.get("uvIndex", "N/A")
             }
-            
+
             forecast = {
                 "ᴄɪᴛʏ": f"{city_code}  ",
                 "ᴄᴏɴᴅ": f"{short_forecast}  ",
@@ -189,13 +188,13 @@ class WeatherGovFormatter(WeatherFormatterInterface):
     async def generate_llm_summary(self, forecasts: list) -> str:
         max_retries = 3
         retry_delay = 1  # seconds
-        
+
         try:
             consolidated_data = "\n".join(
                 f"{f['ᴄɪᴛʏ'].strip()}: {json.loads(f.get('ᴅᴇᴛᴀɪʟs','{}'))}"
                 for f in forecasts
             )
-            
+
             for attempt in range(max_retries):
                 try:
                     response = await self.llm_chain.run(
@@ -205,12 +204,12 @@ class WeatherGovFormatter(WeatherFormatterInterface):
                     return f"\n**AI Weather Summary**\n{response.content}"
                 except Exception as e:
                     if attempt < max_retries - 1:
-                        logger.warning(f"LLM summary attempt {attempt+1} failed: {str(e)}. Retrying in {retry_delay}s...")
+                        logger.warning(f"LLM summary attempt {attempt+1} failed: {e!s}. Retrying in {retry_delay}s...")
                         await asyncio.sleep(retry_delay)
                         continue
                     raise
         except Exception as e:
-            logger.error(f"LLM summary failed after {max_retries} attempts: {str(e)}")
+            logger.exception(f"LLM summary failed after {max_retries} attempts: {e!s}")
             return ""
 
 

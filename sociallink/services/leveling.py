@@ -54,10 +54,9 @@ class LevelManager(Observer):
 
         if level == 1:
             return random.choice(level_1_messages)  # noqa: S311
-        elif level == max_level:
+        if level == max_level:
             return random.choice(max_level_messages)  # noqa: S311
-        else:
-            return random.choice(other_level_messages)  # noqa: S311
+        return random.choice(other_level_messages)  # noqa: S311
 
     @classmethod
     def next_level_messages(cls, level, max_level, user):
@@ -69,10 +68,9 @@ class LevelManager(Observer):
 
         if level == 1:
             return random.choice(new_level_far)  # noqa: S311
-        elif level == max_level:
+        if level == max_level:
             return random.choice(max_level_read)  # noqa: S311
-        else:
-            return random.choice(new_level_close)  # noqa: S311
+        return random.choice(new_level_close)  # noqa: S311
 
     async def calculate_level(self, score):
         base_s_link = await self.config.base_s_link()
@@ -99,7 +97,7 @@ class LevelManager(Observer):
     # We need to declare this as a class method so that it can be used as a callback in the EventBus
     @classmethod
     async def create_level_up_embed(
-        self,
+        cls,
         title: str,
         journal_entry: str,
         rank: int,

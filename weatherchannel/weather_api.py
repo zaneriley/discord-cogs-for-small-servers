@@ -60,7 +60,7 @@ class WeatherGovAPI(WeatherAPIHandler):
     BASE_URL = "https://api.weather.gov"
 
     def _validate_location_format(self, location: str):
-        location = "".join(char for char in location if char.isdigit() or char == "," or char == "." or char == "-")
+        location = "".join(char for char in location if char.isdigit() or char in (",", ".", "-"))
         parts = location.split(",")
         if len(parts) != 2:
             lat_long_error = f"Location format error: Expected 'lat,lon', got '{location}'"
@@ -130,8 +130,7 @@ class WeatherAPIFactory:
     def create_weather_api_handler(api_type: str) -> WeatherAPIHandler:
         if api_type == "open-meteo":
             return OpenMeteoAPI()
-        elif api_type == "weather-gov":
+        if api_type == "weather-gov":
             return WeatherGovAPI()
-        else:
-            unsupported_api_message = f"Unsupported API type: {api_type}"
-            raise ValueError(unsupported_api_message)
+        unsupported_api_message = f"Unsupported API type: {api_type}"
+        raise ValueError(unsupported_api_message)

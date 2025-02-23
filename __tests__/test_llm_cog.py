@@ -4,7 +4,7 @@ import pytest
 from cogs.llm.llm_cog import LLMCog
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_interaction():
     # Create a mock interaction object that simulates Discord interactions
     interaction = MagicMock()
@@ -15,7 +15,7 @@ def mock_interaction():
     return interaction
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_ask_command_success(mock_interaction):
     mock_bot = AsyncMock()
     cog = LLMCog(mock_bot)
@@ -26,7 +26,7 @@ async def test_ask_command_success(mock_interaction):
     mock_interaction.followup.send.assert_awaited_with("🤖 **Response**\nTest response")
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_ask_command_error(mock_interaction):
     mock_bot = AsyncMock()
     cog = LLMCog(mock_bot)

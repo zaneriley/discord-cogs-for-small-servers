@@ -1,3 +1,7 @@
+---
+description: These are the rules that must be followed when writing a commit message.
+globs: 
+---
   <commit_message_guidelines>
     <structure>
       <format>&lt;type&gt;[optional scope]: &lt;description&gt;

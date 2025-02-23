@@ -29,7 +29,7 @@ class GlobalConfig(BaseConfig):
     testing: bool = False
 
     @validator("guild_id")
-    def validate_guild_id(cls, v: Optional[int]) -> int:
+    def validate_guild_id(self, v: Optional[int]) -> int:
         if not v:
             msg = "GUILD_ID must be provided"
             raise ValueError(msg)
@@ -44,7 +44,7 @@ class LLMConfig(BaseConfig):
     default_providers: list[str] = ["openai"]
 
     @validator("openai_api_key")
-    def validate_openai_api_key(cls, v: str) -> str:
+    def validate_openai_api_key(self, v: str) -> str:
         if not v:
             msg = "OPENAI_API_KEY must be provided"
             raise ValueError(msg)

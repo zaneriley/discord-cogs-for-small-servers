@@ -4,11 +4,12 @@ import json
 import logging
 import os
 from pathlib import Path
-import pytest
+from typing import Optional
 
-from cogs.weatherchannel.weather_service import WeatherService
+import pytest
 from cogs.weatherchannel.config import ConfigManager
 from cogs.weatherchannel.weather_formatter import WeatherGovFormatter
+from cogs.weatherchannel.weather_service import WeatherService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -49,17 +50,19 @@ async def test_llm_summary_generation(strings):
 
     formatter = WeatherGovFormatter(strings)
     summary = await formatter.generate_llm_summary(test_forecasts)
-    
+
     # Basic validation of LLM output
     assert summary.startswith("\n**AI Weather Summary**\n")
     assert len(summary) > 50  # Minimum reasonable summary length
     assert any(keyword in summary for keyword in ["°C", "precipitation", "humidity", "wind"])
 
-async def main(test_data_path: str = None):
-    """Test harness for LLM weather summaries
-    
+async def main(test_data_path: Optional[str] = None):
+    """
+    Test harness for LLM weather summaries
+
     Args:
         test_data_path (str, optional): Path to JSON file with sample forecast data
+
     """
     # Load environment config
     guild_id = int(os.getenv("GUILD_ID"))
@@ -87,21 +90,16 @@ async def main(test_data_path: str = None):
         logger.info("Fetched live weather data")
 
     # Generate and display summary
-    summary = await formatter.generate_llm_summary([
-        f for f in test_forecasts 
+    await formatter.generate_llm_summary([
+        f for f in test_forecasts
         if isinstance(f, dict) and "error" not in f
     ])
-    
-    print("\n" + "="*50)
-    print("WEATHER SUMMARY TEST OUTPUT")
-    print("="*50)
-    print(summary or "No summary generated")
-    print("="*50 + "\n")
+
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='Test LLM weather summaries')
-    parser.add_argument('--test-data', help='Path to JSON test data file')
+    parser = argparse.ArgumentParser(description="Test LLM weather summaries")
+    parser.add_argument("--test-data", help="Path to JSON test data file")
     args = parser.parse_args()
-    
-    asyncio.run(main(args.test_data)) 
+
+    asyncio.run(main(args.test_data))

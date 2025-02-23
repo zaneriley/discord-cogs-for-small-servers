@@ -93,7 +93,7 @@ def get_validated_base_url(film: str, year: str | None = None) -> str:
         response = requests.get(url_with_year)
         if response.status_code == 200:
             return url_with_year
-        elif response.status_code == 404:
+        if response.status_code == 404:
             response = requests.get(url_without_year)
             if response.status_code == 200:
                 return url_without_year
@@ -110,13 +110,12 @@ def get_validated_base_url(film: str, year: str | None = None) -> str:
 def construct_url(base_url: str, url_type: str) -> str:
     if url_type == "info":
         return f"{base_url}"
-    elif url_type == "reviews":
+    if url_type == "reviews":
         return f"{base_url}/reviews/by/activity/"
-    elif url_type == "stats":
+    if url_type == "stats":
         return f"{base_url}/likes/"
-    else:
-        msg = f"Invalid url_type: {url_type}. Expected 'info', 'reviews', or 'stats'."
-        raise ValueError(msg)
+    msg = f"Invalid url_type: {url_type}. Expected 'info', 'reviews', or 'stats'."
+    raise ValueError(msg)
 
 
 def fetch_reviews(url: str) -> str | None:
@@ -296,9 +295,8 @@ def fetch_letterboxd_details_wrapper(film: str) -> dict[str, str | Any]:
         if movie_data:
             logger.info(f"Successfully fetched and parsed movie data for {film}.")
             return movie_data
-        else:
-            logger.error(f"Failed to fetch and parse data for {film}.")
-            return {}
+        logger.error(f"Failed to fetch and parse data for {film}.")
+        return {}
     except (
         requests.RequestException,
         Exception,

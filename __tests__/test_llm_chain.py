@@ -14,7 +14,7 @@ class DummyProvider(BaseLLMProvider):
         # Append fixed text for test purposes
         return LLMResponse(content=prompt + " processed", tokens_used=1)
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_llm_node_process_normal():
     # Test that LLMNode applies the prompt modifier correctly.
     provider = DummyProvider()
@@ -28,7 +28,7 @@ async def test_llm_node_process_normal():
     assert response.content == "TEST processed"
     assert not response.error
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_llm_chain_normal():
     # Create two nodes in the chain that process in sequence.
     provider = DummyProvider()
@@ -44,7 +44,7 @@ async def test_llm_chain_normal():
     assert response.content == expected
     assert not response.error
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_llm_chain_stops_on_error():
     # Create a chain where the second node simulates an error.
     provider_ok = DummyProvider()
@@ -60,7 +60,7 @@ async def test_llm_chain_stops_on_error():
     assert "Simulated error" in response.error_message
 
 # Additional edge-case: Test chain with a single node and no prompt modifier.
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_llm_chain_single_node_no_modifier():
     provider = DummyProvider()
     node = LLMNode(name="SingleNode", provider=provider)  # default modifier (identity)

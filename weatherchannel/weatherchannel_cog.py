@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import json  # Import json
 import logging
@@ -108,7 +110,7 @@ class WeatherChannel(commands.Cog):
         if location == "Everywhere":
             # Fetch weather for all locations
             forecasts = await asyncio.gather(
-                *[self.weather_service.fetch_weather(api_type, coords, city) 
+                *[self.weather_service.fetch_weather(api_type, coords, city)
                   for city, (api_type, coords) in default_locations.items()]
             )
             forecasts = [f for f in forecasts if isinstance(f, dict) and "error" not in f]
@@ -148,7 +150,7 @@ class WeatherChannel(commands.Cog):
         await interaction.response.send_message(f"`{table_string}`")
 
     async def forecast_task(self):
-        current_time = int(datetime.now(tz=UTC).timestamp())
+        int(datetime.now(tz=UTC).timestamp())
 
         default_locations = await self.config_manager.get_default_locations(self.guild_id)
         if not default_locations:
@@ -179,14 +181,14 @@ class WeatherChannel(commands.Cog):
 
             # Generate AI summary
             summary = await self.weather_service.get_weather_summary(table_data)
-            
+
             # Build final message
             message_content = (
                 f"{self.strings['weather_report_title']}\n"
                 f"`{table_string}`"
                 f"{summary if summary else ''}"
             )
-            
+
             await channel.send(message_content, allowed_mentions=discord.AllowedMentions.none())
         else:
             logger.warning("Weather channel not found.")

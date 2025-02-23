@@ -14,7 +14,7 @@ def pad_string(text, total_width, alignment="right"):
     padding = total_width - text_width
     if alignment == "right":
         return " " * padding + text
-    elif alignment == "left":
+    if alignment == "left":
         return text + " " * padding
     return None
 

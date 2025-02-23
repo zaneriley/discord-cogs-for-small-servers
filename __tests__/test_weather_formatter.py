@@ -18,11 +18,10 @@ class DummyLLMChain:
             class DummyResponse:
                 content = self.responses[self.call_count - 1]
             return DummyResponse()
-        else:
-            msg = "Simulated failure"
-            raise Exception(msg)
+        msg = "Simulated failure"
+        raise Exception(msg)
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_generate_llm_summary_success_immediate():
     # Create a minimal strings dict that includes the prompt template.
     strings = {"prompts": {"weather_summary": "Fake prompt: {data}"}}
@@ -51,7 +50,7 @@ async def test_generate_llm_summary_success_immediate():
     # The dummy chain should have been called only once.
     assert dummy_chain.call_count == 1
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_generate_llm_summary_retries():
     strings = {"prompts": {"weather_summary": "Fake prompt: {data}"}}
     formatter = WeatherGovFormatter(strings)
@@ -72,7 +71,7 @@ async def test_generate_llm_summary_retries():
     # The chain should have been called three times.
     assert dummy_chain.call_count == 3
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_generate_llm_summary_all_fail():
     strings = {"prompts": {"weather_summary": "Fake prompt: {data}"}}
     formatter = WeatherGovFormatter(strings)

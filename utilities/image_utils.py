@@ -38,9 +38,8 @@ class URLImageHandler(BaseImageHandler):
         async with session.get(self.url) as response:
             if response.status == 200:
                 return await response.read()
-            else:
-                error_message = f"Failed to fetch image from URL: {self.url} with status {response.status}"
-                raise Exception(error_message)
+            error_message = f"Failed to fetch image from URL: {self.url} with status {response.status}"
+            raise Exception(error_message)
 
     async def fetch_image_data(self) -> bytes:
         try:

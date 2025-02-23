@@ -37,7 +37,7 @@ class DummySession:
     async def __aexit__(self, exc_type, exc, tb):
         pass
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_openai_provider_success(monkeypatch):
     # Define dummy JSON response similar to OpenAI API.
     dummy_json = {
@@ -60,7 +60,7 @@ async def test_openai_provider_success(monkeypatch):
     assert response.tokens_used == 42
     assert not response.error
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_openai_provider_error(monkeypatch):
     # Simulate an error in the HTTP call.
     async def dummy_client_session_error(*args, **kwargs):

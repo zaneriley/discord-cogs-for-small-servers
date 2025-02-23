@@ -81,11 +81,11 @@ class SLinkManager:
 
         if not onboarding_sent_user:
             await self.send_onboarding_message(user)
-            await self.config.user(user).onboarding_sent.set(True)  # noqa: FBT003
+            await self.config.user(user).onboarding_sent.set(True)
 
         if not onboarding_sent_confidant:
             await self.send_onboarding_message(confidant)
-            await self.config.user(confidant).onboarding_sent.set(True)  # noqa: FBT003
+            await self.config.user(confidant).onboarding_sent.set(True)
 
         handler = self.level_handlers.get(level)
         if handler:
@@ -221,7 +221,7 @@ _
     async def create_confidant_emoji():
         pass
 
-    async def fetch_confidants_emojis(confidant, level):
+    async def fetch_confidants_emojis(self, level):
         return
 
     async def add_emoji_to_role(self, ctx, emoji: discord.Emoji, level: int):

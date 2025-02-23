@@ -259,9 +259,8 @@ async def fetch_and_save_guild_banner(guild, save_path):
                         f.write(await response.read())
                     logger.info(f"Banner successfully saved to {save_path}")
                     return save_path
-                else:
-                    logger.error(f"Failed to fetch guild banner: HTTP {response.status}")
-                    return None
+                logger.error(f"Failed to fetch guild banner: HTTP {response.status}")
+                return None
     except aiohttp.ClientError as e:
         logger.exception(f"Client error occurred while fetching the guild banner: {e}")
         return None

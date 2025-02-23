@@ -96,9 +96,8 @@ async def update_avatar_emojis(bot, config):
             if e.code == asset_exceeds_max_size:
                 logger.exception("Failed to upload avatar for %s", {member.display_name})
                 raise
-            else:
-                logger.exception("Failed to update avatar for %s", {member.display_name})
-                raise
+            logger.exception("Failed to update avatar for %s", {member.display_name})
+            raise
         except Exception:
             logger.exception("Failed to update avatar for %s", {member.display_name})
             raise
