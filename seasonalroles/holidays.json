@@ -1,0 +1,200 @@
+{
+  "New Year's Celebration": {
+    "date": "01-01",
+    "color": "#D3B44B",
+    "image": "assets/new-years-01.png",
+    "display_name": "New Year's",
+    "announcements": {
+      "before": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} is today!"
+      },
+      "after": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Spring Blossom Festival": {
+    "date": "03-20",
+    "color": "#906D8D",
+    "image": "assets/spring-blossom-01.png",
+    "display_name": "Spring Festival",
+    "announcements": {
+      "before": {
+        "title": "That faint, almost imperceptible warming of air... is it real, or just wishful thinking? Feels almost warmer, doesn't it?",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "They're here! Little petals in an ecstatic frenzy, swirling all around. It's the Spring Blossom Festival. Maybe...just maybe... allow yourself a pinch of optimism today? The world could use it.",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "The sweet tang of celebration still lingers. You've collected memories like fallen blossoms...a vibrant, slightly crumpled bouquet",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Kids Day": {
+    "date": "05-05",
+    "color": "#68855A",
+    "image": "assets/kids-day-01.png",
+    "banner": "assets/kids-day-banner-01.png",
+    "display_name": "Kids Day",
+    "announcements": {
+      "before": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "COPY NEEDED",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Midsummer Festival": {
+    "date": "06-21",
+    "color": "#4A6E8A",
+    "display_name": "Midsummer",
+    "announcements": {
+      "before": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "COPY NEEDED",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Star Festival": {
+    "date": "07-07",
+    "color": "#D4A13D",
+    "image": "assets/star-01.png",
+    "display_name": "Star Festival",
+    "announcements": {
+      "before": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "COPY NEEDED",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Friendship Day": {
+    "date": "08-02",
+    "color": "#8A6E5C",
+    "image": "assets/friendship-01.png",
+    "display_name": "Friendship Day",
+    "announcements": {
+      "before": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "COPY NEEDED",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Harvest Festival": {
+    "date": "09-22",
+    "color": "#D37C40",
+    "display_name": "Harvest Festival",
+    "announcements": {
+      "before": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "COPY NEEDED",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Memories Festival": {
+    "date": "10-15",
+    "color": "#68855A",
+    "display_name": "Memories Festival",
+    "announcements": {
+      "before": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} is today!"
+      },
+      "after": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Spooky Festival": {
+    "date": "10-31",
+    "color": "#A8574E",
+    "image": "assets/spooky-01.png",
+    "display_name": "Spooky Festival",
+    "announcements": {
+      "before": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} is tonight!"
+      },
+      "after": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Winter Festival": {
+    "date": "12-21",
+    "color": "#6C8893",
+    "image": "assets/winter-01.png",
+    "display_name": "Winter Festival",
+    "announcements": {
+      "before": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "COPY NEEDED",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "COPY NEEDED",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  }
+} 

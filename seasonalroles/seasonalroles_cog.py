@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import discord
-from discord.ext import tasks
 
 try:
     from redbot.core import Config, commands
@@ -60,8 +58,6 @@ except ModuleNotFoundError:
 
     commands = DummyCommands()
 
-from utilities.discord_utils import fetch_and_save_guild_banner
-from utilities.image_utils import get_image_handler
 
 from .holiday.holiday_calculator import (
     find_upcoming_holiday,
@@ -73,7 +69,9 @@ from .holiday.holiday_validator import (
     validate_date_format,
     validate_holiday_name,
 )
+from .holiday_announcer import HolidayAnnouncer
 from .holiday_management import HolidayData, HolidayService
+from .role.role_namer import generate_role_name
 from .role_management import RoleManager
 
 if TYPE_CHECKING:
@@ -90,6 +88,12 @@ logger.debug(f"Absolute image path: {image_path}")
 # Constants for magic numbers
 DAYS_BEFORE_HOLIDAY = 7
 PREMIUM_TIER_REQUIRED = 2
+
+# Constants for holiday announcement timing
+DAYS_BEFORE_ANNOUNCEMENT = 7  # Number of days before a holiday to announce
+SAME_DAY_THRESHOLD = 0  # Threshold for same-day checks
+NEXT_DAY_THRESHOLD = 1  # Threshold for next-day checks
+COPYWRITING_CHECK_DAYS = 21  # Check for missing copy 3 weeks in advance
 
 # Define a simple structure for holiday context
 class HolidayContext:
@@ -171,10 +175,19 @@ class SeasonalRoles(commands.Cog):
                 "last_banner_update": None,
                 "is_holiday_banner_active": False,
             },
+            "announcement_config": {
+                "enabled": False,
+                "channel_id": None,
+                "mention_type": None,  # can be null, "everyone", "here", "role"
+                "role_id": None,       # only used if mention_type is "role"
+                "templates": {},       # Custom templates by holiday name and phase
+                "last_announcements": {} # Tracks when the last announcement was sent for each holiday/phase
+            },
         }
         self.config.register_guild(**default_guild)
         self.holiday_service = HolidayService(self.config)
         self.role_manager = RoleManager(self.config)
+        self.holiday_announcer = HolidayAnnouncer(self.bot, self.config)
 
         logger.info("Seasonal roles cog initialized")
 
@@ -479,10 +492,16 @@ class SeasonalRoles(commands.Cog):
 
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
-    @seasonal.command(name="dryrun")
-    async def toggle_dry_run(self, ctx: commands.Context, mode: str):
-        """Toggle dry run mode for seasonal role actions."""
-        logger.info("toggle_dry_run command invoked")
+    @seasonal.group(name="dryrun")
+    async def seasonal_dryrun(self, ctx):
+        """Dry run commands for testing seasonal features without making actual changes."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+
+    @seasonal_dryrun.command(name="toggle")
+    async def dryrun_toggle(self, ctx, mode: str):
+        """Toggle dry run mode on or off."""
+        logger.info("dryrun_toggle command invoked")
         mode = mode.lower()
         if mode in ["enabled", "true", "on"]:
             enabled = True
@@ -506,425 +525,407 @@ class SeasonalRoles(commands.Cog):
                     f"Dry run mode {mode_str}. Actions will now make real changes."
                 )
         except Exception:
-            logger.exception("Error in toggle_dry_run")
+            logger.exception("Error in dryrun_toggle")
+            await ctx.send("An error occurred while toggling dry run mode.")
 
-    @commands.guild_only()
-    @commands.has_permissions(manage_roles=True)
-    @seasonal.command(name="check")
-    async def force_check_holidays(
-        self, ctx: commands.Context, date_str: str | None = None
-    ):
-        """Force check holidays."""
-        await self.check_holidays(ctx.guild, date_str=date_str, force=True)
-        await ctx.send("Checked holidays for this guild.")
-
-    @tasks.loop(hours=24)
-    async def check_holidays(
-        self, guild: discord.Guild | None = None, *, date_str: str | None = None, force: bool = False
-    ):
-        """
-        Check for upcoming holidays and manage seasonal roles and banners accordingly.
-        This task runs daily to check for upcoming holidays, create/update roles,
-        and manage server banners based on configured holidays.
-        """
-        if guild is None:
-            guild = self.guild
-            logger.debug("No guild provided, using default guild.")
-
-        try:
-            # Get current date and holidays
-            current_date = self._get_current_date(date_str)
-            holidays = await self._get_guild_holidays(guild)
-            if not holidays:
-                return
-
-            # Process holiday roles and banners
-            sorted_holidays = get_sorted_holidays(holidays, current_date)
-            upcoming_holiday, days_until = find_upcoming_holiday(holidays, current_date)
-
-            logger.debug(f"Sorted holidays: {sorted_holidays}")
-            banner_config = await self.config.guild(guild).banner_management()
-
-            # Process each holiday based on its timing
-            for name, days in sorted_holidays:
-                holiday_details = holidays[name]
-                days_until_holiday = days
-
-                logger.debug(f"Holiday '{name}' is {days_until_holiday} days away.")
-
-                # Save the original banner if within days before holiday and not already saved
-                await self._manage_original_banner(guild, days_until_holiday, banner_config)
-
-                holiday_context = HolidayContext(name, holiday_details, sorted_holidays, days_until_holiday)
-
-                if days_until_holiday < 0 or days_until_holiday > DAYS_BEFORE_HOLIDAY:
-                    # Past or far future holiday
-                    await self._handle_past_holiday(guild, holiday_context, banner_config)
-                elif 0 <= days_until_holiday <= DAYS_BEFORE_HOLIDAY:
-                    # Current or upcoming holiday
-                    await self._handle_upcoming_holiday(guild, name, holiday_details, days_until_holiday, force=force)
-        except Exception:
-            logger.exception("Error in check_holidays task")
-
-    async def _get_guild_holidays(self, guild: discord.Guild):
-        """Retrieve the configured holidays for the given guild."""
-        holidays = None
-        try:
-            holidays = await self.config.guild(guild).holidays()
-            if not holidays:
-                logger.warning("No holidays configured for this guild.")
-                return None
-            logger.debug(f"Retrieved holidays: {holidays}")
-        except Exception:
-            logger.exception("Failed to retrieve holidays from config")
-            return None
-
-        return holidays
-
-    def _get_current_date(self, date_str: str | None = None):
-        """Get the current date or parse from the provided string."""
-        if date_str:
-            try:
-                # Parse the provided date string (format should be YYYY-MM-DD)
-                return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
-            except ValueError:
-                logger.exception(f"Invalid date format: {date_str}. Using current date instead.")
-
-        # Use current date if no date string provided or if parsing failed
-        return datetime.now(timezone.utc).date()
-
-    async def _manage_original_banner(self, guild: discord.Guild, days_until_holiday: int, banner_config: dict):
-        """Save the original banner if approaching a holiday and not already saved."""
-        if (0 <= days_until_holiday <= DAYS_BEFORE_HOLIDAY and
-            banner_config["original_banner_path"] is None):
-            logger.debug("Attempting to save the original banner...")
-            save_path = (
-                Path(__file__).parent
-                / f"assets/guild-banner-non-holiday-{guild.id}.png"
-            )
-            saved_path = await fetch_and_save_guild_banner(guild, str(save_path))
-            if saved_path:
-                await self.config.guild(guild).banner_management.set_raw(
-                    "original_banner_path", value=saved_path
-                )
-                logger.info("Original banner saved.")
-
-    async def _handle_past_holiday(
-        self,
-        guild: discord.Guild,
-        holiday_context: HolidayContext,
-        banner_config: dict | None = None
-    ):
-        """Handle a holiday that has passed or is too far in the future."""
-        name = holiday_context.name
-        holiday_details = holiday_context.details
-        sorted_holidays = holiday_context.sorted_holidays
-        days_until_holiday = holiday_context.days_until
-
-        logger.debug(f"Handling past or far future holiday: {name}")
-
-        # Remove the holiday role if it exists
-        from .role.role_namer import generate_role_name
-        role_name = generate_role_name(name, holiday_details["date"])
-        role = discord.utils.get(guild.roles, name=role_name)
-
-        if role:
-            await self.role_manager.delete_role_from_guild(guild, role)
-            logger.info(f"Role '{name}' has been removed from the guild.")
-
-        # Restore original banner if this is the most recently passed holiday
-        if days_until_holiday < 0 and name == sorted_holidays[0][0]:
-            await self._restore_original_banner(guild, banner_config)
-
-    async def _restore_original_banner(self, guild: discord.Guild, banner_config: dict):
-        """Restore the original banner after a holiday ends."""
-        original_banner_path = banner_config["original_banner_path"]
-        if original_banner_path:
-            await self.change_server_banner(guild, original_banner_path)
-            logger.info("Restored the original banner.")
-
-    async def _handle_upcoming_holiday(
-        self,
-        guild: discord.Guild,
-        name: str,
-        holiday_details: dict,
-        days_until_holiday: int,
-        *, force: bool = False
-    ):
-        """Handle a holiday that is upcoming or currently active."""
-        logger.debug(f"Handling upcoming or current holiday: {name}")
-
-        # Skip if not forced and not today
-        if not force and days_until_holiday > 0:
-            logger.debug(
-                f"Skipping role application for '{name}' as it's not today and force is not enabled."
-            )
+    @seasonal_dryrun.command(name="role")
+    async def dryrun_role(self, ctx, *, holiday_name: str):
+        """Preview what role would be created/updated for a specific holiday."""
+        # Ensure dry run is enabled
+        if not await self._ensure_dryrun_enabled(ctx):
             return
 
-        # Create or update the holiday role
-        await self._create_and_assign_holiday_role(guild, name, holiday_details)
-
-        # Update guild banner if specified
-        await self._update_holiday_banner(guild, name, holiday_details, days_until_holiday)
-
-    async def _create_and_assign_holiday_role(
-        self,
-        guild: discord.Guild,
-        name: str,
-        holiday_details: dict
-    ):
-        """Create or update a holiday role and assign it to opted-in members."""
-        role = await self.role_manager.create_or_update_role(
-            guild,
-            name,
-            holiday_details["color"],
-            holiday_details["date"],
-            holiday_details.get("image"),
-        )
-
-        if role:
-            await self.role_manager.assign_role_to_all_members(guild, role)
-            logger.info(f"Applied holiday role for '{name}' to opted-in members.")
-        else:
-            logger.error(f"Failed to create or update role for '{name}'")
-
-    async def _update_holiday_banner(
-        self,
-        guild: discord.Guild,
-        name: str,
-        holiday_details: dict,
-        days_until_holiday: int
-    ):
-        """Update the guild banner with a holiday-specific banner if available."""
-        if ("banner" in holiday_details and
-            0 <= days_until_holiday <= DAYS_BEFORE_HOLIDAY):
-
-            holiday_banner_path = holiday_details["banner"]
-            await self.change_server_banner(guild, holiday_banner_path)
-            await self.config.guild(guild).banner_management.set_raw(
-                "is_holiday_banner_active", value=True
-            )
-            logger.info(f"Updated guild banner for '{name}' and set is_holiday_banner_active to True.")
-
-    @commands.guild_only()
-    @commands.has_permissions(manage_roles=True)
-    @seasonal.command(name="forceholiday")
-    async def force_holiday(
-        self, ctx: commands.Context, *holiday_name_parts: str
-    ) -> None:
-        holiday_name = " ".join(holiday_name_parts).lower()
-        guild = ctx.guild
-        holidays = await self.config.guild(guild).holidays()
-        dry_run_mode = await self.config.guild(guild).dry_run_mode()
-
-        logger.debug(
-            f"Processing forceholiday for '{holiday_name}' with dry run mode set to {dry_run_mode}."
-        )
-
-        save_path = (
-            Path(__file__).parent / f"assets/guild-banner-non-holiday-{guild.id}.png"
-        )
-        try:
-            saved_path = await fetch_and_save_guild_banner(guild, str(save_path))
-            if saved_path:
-                await self.config.guild(guild).banner_management.set_raw(
-                    "original_banner_path", value=saved_path
-                )
-                logger.info("Original banner saved.")
-            else:
-                logger.error("Failed to save the original banner.")
-                await ctx.send(
-                    "Failed to save the original banner. Please check the logs for more details."
-                )
-        except Exception:
-            logger.exception("Error saving the original banner")
-            await ctx.send(
-                "An error occurred while saving the original banner. Please check the logs for more details."
-            )
-
-        # Use the business logic to find the holiday case-insensitively
+        # Get holiday details and show role preview
+        holidays = await self.config.guild(ctx.guild).holidays()
         original_name, holiday_details = find_holiday(holidays, holiday_name)
 
-        if original_name and holiday_details:
-            logger.debug(
-                f"Found holiday details for '{holiday_name}' as '{original_name}': {holiday_details}"
-            )
-            if "banner" in holiday_details:
-                holiday_banner_path = Path(__file__).parent / holiday_details["banner"]
-                try:
-                    await self.change_server_banner(guild, str(holiday_banner_path))
-                    logger.info(f"Updated guild banner for '{original_name}'.")
-                except Exception:
-                    logger.exception(
-                        f"Error updating guild banner for '{original_name}'"
-                    )
-                    await ctx.send(
-                        f"An error occurred while updating the guild banner for '{original_name}'. Please check the logs for more details."
-                    )
-            else:
-                await ctx.send(f"No banner specified for '{original_name}'.")
-        else:
-            await ctx.send(f"No details found for the holiday '{holiday_name}'.")
-            logger.error(f"No details found for the holiday '{holiday_name}'.")
+        if not original_name:
+            await ctx.send(f"Holiday '{holiday_name}' not found.")
             return
 
-        (
-            success,
-            message,
-        ) = await self.holiday_service.remove_all_except_current_holiday_role(
-            guild, original_name
+        # Show what the role would look like
+        color_hex = holiday_details["color"]
+        date = holiday_details["date"]
+        embed = discord.Embed(
+            title=f"Role Preview: {original_name}",
+            description="This is what the role would look like if applied",
+            color=int(color_hex[1:], 16)
         )
-        if message:
-            logger.debug(message)
-            await ctx.send(message)
-        if not success:
-            logger.error("Failed to clear other holidays.")
-            return
 
-        success, message = await self.holiday_service.apply_holiday_role(
-            guild, original_name, dry_run_mode
+        embed.add_field(name="Role Name", value=f"{original_name} ({date})")
+        embed.add_field(name="Color", value=color_hex)
+
+        if "image" in holiday_details:
+            embed.add_field(name="Icon", value=f"`{holiday_details['image']}`")
+
+        # Show affected members count
+        opt_in_users = await self.config.guild(ctx.guild).opt_in_users()
+        embed.add_field(
+            name="Members who would receive this role",
+            value=f"{len(opt_in_users)} members"
         )
-        if message:
-            logger.debug(message)
-            await ctx.send(message)
+
+        await ctx.send(embed=embed)
+
+    @seasonal_dryrun.command(name="announcements")
+    async def dryrun_announcements(self, ctx, *, holiday_name: str):
+        """
+        Preview all announcements for a holiday (before, during, after).
+
+        Parameters
+        ----------
+        ctx : discord.Context
+            The invocation context.
+        holiday_name : str
+            The name of the holiday to preview announcements for.
+
+        """
+        # Ensure dry run is enabled
+        if not await self._ensure_dryrun_enabled(ctx):
+            return
+
+        # Find the holiday
+        holidays = await self.config.guild(ctx.guild).holidays()
+        original_name, holiday_details = find_holiday(holidays, holiday_name)
+
+        if not original_name:
+            await ctx.send(f"Holiday '{holiday_name}' not found.")
+            return
+
+        from .holiday.holiday_data import Holiday
+        holiday_obj = Holiday(
+            name=original_name,
+            color=holiday_details.get("color", "#FFFFFF"),
+            image=holiday_details.get("image", ""),
+            date=holiday_details["date"]
+        )
+
+        # Get the announcement channel config
+        announcement_config = await self.config.guild(ctx.guild).announcement_config()
+        channel_id = announcement_config.get("channel_id")
+        channel_mention = f"<#{channel_id}>" if channel_id else "No channel configured"
+
+        # Display header info
+        await ctx.send(f"# **Announcement Preview for {original_name}**")
+        await ctx.send(f"Announcements would be sent to: {channel_mention}")
+
+        # Show before announcement (7 days before)
+        await ctx.send("\n## **7 DAYS BEFORE ANNOUNCEMENT**")
+        await self.holiday_announcer.preview_holiday_announcement(
+            holiday=holiday_obj,
+            phase="before",
+            user=ctx.author,
+            guild_id=ctx.guild.id,
+            days_until=7,
+            to_channel=True,
+            ctx=ctx
+        )
+
+        # Show during announcement (day of)
+        await ctx.send("\n## **DAY OF HOLIDAY ANNOUNCEMENT**")
+        await self.holiday_announcer.preview_holiday_announcement(
+            holiday=holiday_obj,
+            phase="during",
+            user=ctx.author,
+            guild_id=ctx.guild.id,
+            to_channel=True,
+            ctx=ctx
+        )
+
+        # Show after announcement (day after)
+        await ctx.send("\n## **DAY AFTER HOLIDAY ANNOUNCEMENT**")
+        await self.holiday_announcer.preview_holiday_announcement(
+            holiday=holiday_obj,
+            phase="after",
+            user=ctx.author,
+            guild_id=ctx.guild.id,
+            to_channel=True,
+            ctx=ctx
+        )
+
+        await ctx.send("\n**Note:** These announcements would be sent automatically at the appropriate times.")
+
+    @seasonal_dryrun.command(name="announcement_phase")
+    async def dryrun_announce_phase(self, ctx, holiday_name: str, phase: str, days_until: int | None = None):
+        """
+        Preview a specific announcement phase for a holiday.
+
+        Parameters
+        ----------
+        ctx : discord.Context
+            The invocation context.
+        holiday_name : str
+            The name of the holiday to preview.
+        phase : str
+            One of 'before', 'during', or 'after'.
+        days_until : int | None
+            For 'before' phase, how many days until the holiday (default: 7).
+
+        """
+        # Ensure dry run is enabled
+        if not await self._ensure_dryrun_enabled(ctx):
+            return
+
+        # Validate phase
+        if phase not in ["before", "during", "after"]:
+            await ctx.send("Invalid phase. Must be one of: 'before', 'during', or 'after'")
+            return
+
+        # Validate days_until for 'before' phase
+        if phase == "before" and days_until is None:
+            days_until = 7  # Default to 7 days before
+
+        # Find the holiday
+        holidays = await self.config.guild(ctx.guild).holidays()
+        original_name, holiday_details = find_holiday(holidays, holiday_name)
+
+        if not original_name:
+            await ctx.send(f"Holiday '{holiday_name}' not found.")
+            return
+
+        from .holiday.holiday_data import Holiday
+        holiday_obj = Holiday(
+            name=original_name,
+            color=holiday_details.get("color", "#FFFFFF"),
+            image=holiday_details.get("image", ""),
+            date=holiday_details["date"]
+        )
+
+        # Preview the announcement for the specific phase
+        await ctx.send(f"**Previewing {phase} announcement for {original_name}:**")
+
+        # Call the preview method with appropriate parameters
+        success, message = await self.holiday_announcer.preview_holiday_announcement(
+            holiday=holiday_obj,
+            phase=phase,
+            user=ctx.author,
+            guild_id=ctx.guild.id,
+            days_until=days_until if phase == "before" else None,
+            to_channel=True,
+            ctx=ctx
+        )
+
         if not success:
-            logger.error("Failed to apply holiday role.")
+            await ctx.send(f"Failed to generate preview: {message}")
 
-    @check_holidays.before_loop
-    async def before_check_holidays(self):
-        await self.bot.wait_until_ready()
-        self.guild = self.bot.get_guild(GUILD_ID)
+    @seasonal_dryrun.command(name="banner")
+    async def dryrun_banner(self, ctx, *, holiday_name: str):
+        """
+        Preview what a holiday banner would look like without changing it.
 
-    @commands.guild_only()
-    @commands.has_permissions(manage_roles=True)
-    @seasonal.command(name="setbanner")
-    async def set_banner(self, ctx: commands.Context, image_url: str | None = None):
+        Parameters
+        ----------
+        ctx : discord.Context
+            The invocation context.
+        holiday_name : str
+            The name of the holiday to preview banner for.
+
         """
-        Change the server's banner to the provided URL.
-        """
-        if ctx.message.attachments:
-            image_url = ctx.message.attachments[0].url
-        elif not image_url:
-            await ctx.send(
-                "Please provide a URL to an image or attach an image to your message."
-            )
+        # Constants for Discord's recommended banner dimensions
+        discord_banner_width = 960
+        discord_banner_height = 540
+
+        # Ensure dry run is enabled
+        if not await self._ensure_dryrun_enabled(ctx):
             return
 
-        if ctx.guild.premium_tier < PREMIUM_TIER_REQUIRED:
-            await ctx.send(
-                "This server needs to be at least level 2 boosted to change the banner."
-            )
+        # Find the holiday
+        holidays = await self.config.guild(ctx.guild).holidays()
+        original_name, holiday_details = find_holiday(holidays, holiday_name)
+
+        if not original_name:
+            await ctx.send(f"Holiday '{holiday_name}' not found.")
             return
 
-        await ctx.send(f"Attempting to change the server banner to: {image_url}")
-        result = await self.change_server_banner(ctx.guild, image_url)
-        await ctx.send(result)
+        # Check if banner is configured
+        if "banner" not in holiday_details:
+            await ctx.send(f"No banner configured for '{original_name}'. Use `/seasonal holiday edit {original_name} banner <path>` to add one.")
+            return
 
-        if "successfully" in result.lower():
-            # Save the banner path as the non-holiday banner
-            save_path = (
-                Path(__file__).parent
-                / f"assets/guild-banner-non-holiday-{ctx.guild.id}.png"
-            )
-            await fetch_and_save_guild_banner(ctx.guild, str(save_path))
-            await self.config.guild(ctx.guild).banner_management.set_raw(
-                "original_banner_path", value=str(save_path)
-            )
+        banner_path = holiday_details["banner"]
 
-    async def change_server_banner(self, guild: discord.Guild, image_url: str) -> str:
-        """
-        Changes the server's banner to the provided image URL.
-        """
-        try:
-            image_handler = get_image_handler()
-            if not image_handler:
-                return "Failed to initialize image handler."
+        # Create embed to display banner info
+        embed = discord.Embed(
+            title=f"Banner Preview for {original_name}",
+            description=f"This is what the server banner would look like during the {original_name} holiday.",
+            color=int(holiday_details["color"][1:], 16)
+        )
 
-            image_bytes = await image_handler.fetch_image(image_url)
-            if not image_bytes:
-                return f"Failed to fetch image from URL: {image_url}"
+        embed.add_field(name="Banner Path", value=f"`{banner_path}`", inline=False)
 
-            await guild.edit(banner=image_bytes)
+        # Check if file exists
+        banner_file = Path(f"./assets/banners/{banner_path}")
+        if banner_file.exists():
+            embed.add_field(name="Status", value="✅ Banner file exists", inline=False)
 
-        except discord.HTTPException as e:
-            return f"A Discord API error occurred: {e}"
-        except (ValueError, TypeError, AttributeError) as e:
-            return f"An error occurred processing the image: {e}"
-        except Exception:
-            logger.exception("Unexpected error changing server banner")
-            return "An unexpected error occurred. Please check logs for details."
-        else:
-            return f"Successfully changed the server banner to {image_url}"
-
-    @commands.Cog.listener()
-    async def on_member_join(self, member: discord.Member):
-        """
-        Handles the event when a member joins the server by automatically adding them to the opt-in users list
-        and assigning them any relevant holiday roles based on the current date.
-
-        This method checks if the joining member is a bot and skips further processing if true. For non-bot members,
-        it performs the following operations:
-        1. Adds the member to the 'opt_in_users' list if they are not already included.
-        2. Checks the current date against configured holidays in the guild's settings.
-        3. Assigns the corresponding holiday role to the member if the current date matches any holiday date.
-        """
-        if member.bot:
-            return  # Skip bots
-
-        opt_in_users = await self.config.guild(member.guild).opt_in_users()
-
-        if member.id not in opt_in_users:
-            opt_in_users.append(member.id)
-            await self.config.guild(member.guild).opt_in_users.set(opt_in_users)
-            logger.info(f"Added {member.display_name} to opt-in users.")
-
-        # Check and assign holiday roles using the existing method
-        await self.check_holidays(member.guild, force=True)
-
-    async def toggle_seasonal_role(self, ctx: commands.Context) -> None:
-        """Toggle opting in/out from the seasonal role."""
-        try:
-            opt_in_users = await self.config.guild(ctx.guild).opt_in_users()
-            opt_out_users = await self.config.guild(ctx.guild).opt_out_users()
-
-            if ctx.author.id in opt_in_users:
-                # User is opted in, so opt them out
-                opt_in_users.remove(ctx.author.id)
-                opt_out_users.append(ctx.author.id)
-                await self.config.guild(ctx.guild).opt_in_users.set(opt_in_users)
-                await self.config.guild(ctx.guild).opt_out_users.set(opt_out_users)
-                await ctx.send(
-                    f"{ctx.author.mention}, you have opted out from the seasonal role."
-                )
-            else:
-                # User is not opted in, so opt them in
-                opt_out_users.remove(
-                    ctx.author.id
-                ) if ctx.author.id in opt_out_users else None
-                opt_in_users.append(ctx.author.id)
-                await self.config.guild(ctx.guild).opt_in_users.set(opt_in_users)
-                await self.config.guild(ctx.guild).opt_out_users.set(opt_out_users)
-                await ctx.send(
-                    f"{ctx.author.mention}, you have opted in to the seasonal role!"
-                )
-
-                # Check if there's a current holiday and if the member has its role.
-                current_date = datetime.now(timezone.utc).date()
-                holidays = await self.config.guild(ctx.guild).holidays()
-                for holiday, details in holidays.items():
-                    holiday_date = (
-                        datetime.strptime(details["date"], "%m-%d")
-                        .replace(tzinfo=timezone.utc)
-                        .date()
-                        .replace(year=current_date.year)
+            # Try to get the dimensions if it's an image file
+            try:
+                from PIL import Image
+                with Image.open(banner_file) as img:
+                    width, height = img.size
+                    embed.add_field(
+                        name="Dimensions",
+                        value=f"{width} x {height} pixels",
+                        inline=True
                     )
-                    if current_date == holiday_date:
-                        role = discord.utils.get(ctx.guild.roles, name=holiday)
-                        if role:
-                            await ctx.author.add_roles(role)
-                            await ctx.send(f"You have been given the {role.name} role!")
-        except Exception:
-            logger.exception("Error toggling seasonal role")
-            await ctx.send(
-                "An error occurred while toggling your seasonal role preference."
+
+                    # Check if it meets Discord's banner requirements
+                    if width != discord_banner_width or height != discord_banner_height:
+                        dimensions_msg = (
+                            f"{discord_banner_width}x{discord_banner_height}"
+                        )
+                        embed.add_field(
+                            name="⚠️ Warning",
+                            value=(
+                                f"This banner doesn't match Discord's recommended "
+                                f"dimensions of {dimensions_msg}."
+                            ),
+                            inline=False
+                        )
+            except (ImportError, OSError):
+                embed.add_field(
+                    name="Dimensions",
+                    value="Unable to determine (not an image or PIL not installed)",
+                    inline=True
+                )
+
+            # Attach the banner file to the message
+            try:
+                file = discord.File(banner_file, filename=banner_path)
+                embed.set_image(url=f"attachment://{banner_path}")
+                await ctx.send(embed=embed, file=file)
+            except (OSError, discord.DiscordException) as e:
+                embed.add_field(
+                    name="Error",
+                    value=f"Could not attach file: {e}",
+                    inline=False
+                )
+                await ctx.send(embed=embed)
+        else:
+            embed.add_field(
+                name="⚠️ Error",
+                value=f"Banner file not found at `./assets/banners/{banner_path}`",
+                inline=False
             )
+            embed.add_field(
+                name="Fix",
+                value="Place the banner file in the correct location or update the banner path",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+
+    @seasonal_dryrun.command(name="simulate")
+    async def dryrun_simulate(self, ctx, *, holiday_name: str):
+        """
+        Simulate the entire lifecycle of a holiday without making actual changes.
+
+        This command will show all actions that would be taken for a holiday:
+        1. Seven days before the holiday (role creation, announcement)
+        2. On the day of the holiday (banner change, announcement)
+        3. The day after the holiday (role removal, banner reset, announcement)
+
+        Parameters
+        ----------
+        ctx : discord.Context
+            The invocation context.
+        holiday_name : str
+            The name of the holiday to simulate.
+
+        """
+        if not await self._ensure_dryrun_enabled(ctx):
+            return
+
+        # Find the holiday
+        holidays = await self.config.guild(ctx.guild).holidays()
+        original_name, holiday_details = find_holiday(holidays, holiday_name)
+
+        if not original_name:
+            await ctx.send(f"Holiday '{holiday_name}' not found.")
+            return
+
+        # Create Holiday object
+        from .holiday.holiday_data import Holiday
+        holiday_obj = Holiday(
+            name=original_name,
+            color=holiday_details.get("color", "#FFFFFF"),
+            image=holiday_details.get("image", ""),
+            date=holiday_details["date"]
+        )
+
+        await ctx.send(f"## **SIMULATING HOLIDAY LIFECYCLE: {original_name}**")
+        await ctx.send("This will show what would happen at each phase of the holiday.")
+
+        # Phase 1: 7 days before
+        await ctx.send("\n## **PHASE 1: 7 DAYS BEFORE THE HOLIDAY**")
+        await ctx.send("The following would happen 7 days before the holiday:")
+
+        # Show role creation
+        await ctx.send("**Actions:**")
+        role_name = generate_role_name(original_name, holiday_details["date"])
+        role_color = holiday_details.get("color", "#FFFFFF")
+        await ctx.send(f"- Holiday role would be created: `{role_name}` with color `{role_color}`")
+
+        estimated_members = len([m for m in ctx.guild.members if not m.bot])
+        await ctx.send(f"- Approximately {estimated_members} members would receive this role")
+
+        # Show announcement
+        await ctx.send("**Announcement that would be sent 7 days before the holiday:**")
+
+        await self.holiday_announcer.preview_holiday_announcement(
+            holiday=holiday_obj,
+            phase="before",
+            user=ctx.author,
+            guild_id=ctx.guild.id,
+            days_until=DAYS_BEFORE_ANNOUNCEMENT,
+            to_channel=True,
+            ctx=ctx
+        )
+
+        # Phase 2: Day of holiday
+        await ctx.send("\n## **PHASE 2: DAY OF THE HOLIDAY**")
+        await ctx.send("The following would happen on the day of the holiday:")
+
+        # Show banner change
+        await ctx.send("**Actions:**")
+        if "banner" in holiday_details:
+            banner_path = holiday_details["banner"]
+            await ctx.send(f"**Banner would change to:** `{banner_path}`")
+
+        # Show announcement
+        await ctx.send("**Announcement that would be sent on the holiday:**")
+
+        await self.holiday_announcer.preview_holiday_announcement(
+            holiday=holiday_obj,
+            phase="during",
+            user=ctx.author,
+            guild_id=ctx.guild.id,
+            days_until=0,
+            to_channel=True,
+            ctx=ctx
+        )
+
+        # Phase 3: Day after
+        await ctx.send("\n## **PHASE 3: DAY AFTER THE HOLIDAY**")
+        await ctx.send("The following would happen the day after the holiday:")
+
+        # Show role/banner cleanup
+        await ctx.send("**Actions:**")
+        await ctx.send("- Holiday role would be removed from all members")
+        await ctx.send("- Server banner would be restored to original (if changed)")
+
+        # Show announcement
+        await ctx.send("**Announcement that would be sent after the holiday:**")
+
+        await self.holiday_announcer.preview_holiday_announcement(
+            holiday=holiday_obj,
+            phase="after",
+            user=ctx.author,
+            guild_id=ctx.guild.id,
+            days_until=-1,
+            to_channel=True,
+            ctx=ctx
+        )
+
+        # Final summary
+        await ctx.send("\n## **SIMULATION COMPLETE**")
+        await ctx.send("This simulation shows what would happen during an actual holiday without making real changes.")

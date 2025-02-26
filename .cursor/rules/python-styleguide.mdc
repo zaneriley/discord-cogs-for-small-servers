@@ -1,0 +1,73 @@
+---
+description: This style guide outlines our standards for writing clean, readable, and maintainable Python code. Following these guidelines ensures consistency across our codebase and helps catch common errors early.
+globs: *.py
+alwaysApply: false
+---
+Function and Method Design
+- PLR0913: Never exceed 5 parameters in a function definition
+  - ✅ Use data classes, dictionaries, or option strings to consolidate multiple parameters
+  - ❌ def process_data(name, date, color, image_url, banner_url, role_name, description)
+- PLR0912: Keep function cognitive complexity below 15
+ - ✅ Break complex functions into smaller helper methods
+ - ❌ Functions with many nested conditions, loops, and branches
+- PLR0915: Keep function length below 50 lines
+  - ✅ Extract logic into helper methods for specific tasks
+  - ❌ Monolithic functions that handle multiple responsibilities
+
+- S101: Never use assert statements in production code
+  - ✅ Use proper exception handling with descriptive error messages
+  - ❌ assert user_id is not None, "User ID should not be None"
+- S101: Never use assert statements in production code
+  - ✅ Use proper exception handling with descriptive error messages
+  - ❌ assert user_id is not None, "User ID should not be None"
+  - Type Annotations
+- ANN001/ANN002: Include type annotations for function arguments and return values
+  - ✅ def get_user(user_id: int) -> User | None:
+  - ❌ def get_user(user_id):
+- ANN401: Use | None instead of Optional[T] in Python 3.10+
+  - ✅ def process_data(config: dict | None = None):
+  - ❌ def process_data(config: Optional[dict] = None):
+
+Documentation
+- D413: Include blank line after the last section in docstrings
+  - ✅ 
+```python
+"""
+Process user data.
+Args:
+user_id: The user identifier
+Returns:
+Processed user data
+"""
+
+```
+  - ❌ 
+  ```python
+    """
+    Process user data.
+    
+    Args:
+        user_id: The user identifier
+    Returns:
+        Processed user data
+    """
+```
+
+Variables and Constants
+Use UPPERCASE for constants: MAX_RETRIES = 5
+Use descriptive variable names: user_count instead of uc
+Avoid single-letter variable names except in mathematical contexts or loops
+Prefix private attributes with underscore: self._internal_state
+
+Boolean Expressions
+Don't compare boolean values to True/False: use if condition: not if condition == True:
+Use positive conditionals over negative ones: if is_valid: over if not is_invalid:
+Avoid complex boolean expressions - extract to named variables or functions
+Comments a
+Comments and Annotations
+Write docstrings for all public modules, functions, classes, and methods
+Follow Google, NumPy, or reStructuredText docstring format consistently
+Add explanatory comments for complex logic, but prefer clear code over comments
+Use type annotations for function arguments and return values
+
+  - 

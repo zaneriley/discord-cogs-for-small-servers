@@ -124,6 +124,39 @@ ruff .
 mypy .
 ```
 
+## Integration & Docker Testing
+
+Although this repository contains the cogs and associated tests, you'll need to set up a Docker testing configuration is maintained in the Redbot root folder (not in this cog folder). In practice, this means:
+
+1. **Docker Configuration Location:**  
+  The `docker-compose.yml` and `dockerfile.test` files are located in the Redbot root directory. They are used to build a testing environment that mounts this repository's `cogs/` directory (and its tests) as read-only. 
+
+1. **Running Tests:**  
+  To run the test suite using Docker, execute the following command from the Redbot root folder:
+  ```bash
+  docker-compose run tests --build
+  ```
+  This command builds the test container and runs the test suite, which by default is set up to collect tests from the `cogs/seasonalroles/tests` directory. (Other directories that depend on external modules are intentionally ignored.)
+
+  **Note:** If you ever need to run tests for a specific cog or isolate problematic tests, you can pass additional arguments to `pytest`. For example, to run only the seasonal roles tests:
+  ```bash
+  docker-compose run tests pytest --ignore=cogs/__tests__ --ignore=tests cogs/seasonalroles/tests
+  ```
+
+3. **Local Testing Without Docker:**  
+  Alternatively, if you'd like to run tests locally (outside of Docker), set your `PYTHONPATH` to include the `cogs` directory and then run:
+  ```bash
+  export PYTHONPATH=./cogs    # For macOS/Linux (use set on Windows)
+  pytest
+  ```
+
+4. **Static Analysis and Linting:**  
+  You can also perform code quality checks using Docker, run:
+  ```bash
+  docker-compose run lint
+  ```
+
+
 ### Project Structure
 
 ```
@@ -136,9 +169,6 @@ cogs/
 └── tests/             # Test suite
 ```
 
-## Contributing
-
-We love your input! Check out our [Contributing Guide](CONTRIBUTING.md) for guidelines on how to proceed.
 
 ### Code Style
 

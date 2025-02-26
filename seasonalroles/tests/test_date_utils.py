@@ -10,11 +10,11 @@ from utilities.date_utils import DateUtil
 def test_normalize_date():
     # Test with datetime
     dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    assert DateUtil.normalize_date(dt) == date(2024, 1, 1)  # noqa: S101
+    assert DateUtil.normalize_date(dt) == date(2024, 1, 1)
 
     # Test with date
     d = date(2024, 1, 1)
-    assert DateUtil.normalize_date(d) == date(2024, 1, 1)  # noqa: S101
+    assert DateUtil.normalize_date(d) == date(2024, 1, 1)
 
     # Test with invalid type
     with pytest.raises(TypeError):
@@ -23,7 +23,7 @@ def test_normalize_date():
 
 def test_str_to_date():
     # Test with YYYY-MM-DD format
-    assert DateUtil.str_to_date("2024-01-01", "%Y-%m-%d") == date(2024, 1, 1)  # noqa: S101
+    assert DateUtil.str_to_date("2024-01-01", "%Y-%m-%d") == date(2024, 1, 1)
 
     # Test with MM-DD format (current year)
     current_year = DateUtil.now().year
@@ -40,8 +40,8 @@ def test_str_to_date():
 
 def test_now():
     # Test that now() returns a date object
-    assert isinstance(DateUtil.now(), date)  # noqa: S101
+    assert isinstance(DateUtil.now(), date)
 
     # Test that now() returns today's date
     today = datetime.now(timezone.utc).date()
-    assert DateUtil.now() == today  # noqa: S101
+    assert DateUtil.now() == today
