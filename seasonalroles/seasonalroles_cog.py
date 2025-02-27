@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -59,19 +60,23 @@ except ModuleNotFoundError:
     commands = DummyCommands()
 
 
+from utilities.discord_utils import fetch_and_save_guild_banner
+
 from .holiday.holiday_calculator import (
-    find_upcoming_holiday,
-    get_sorted_holidays,
+    find_upcoming_holiday as calc_upcoming_holiday,
+)
+from .holiday.holiday_calculator import (
+    get_sorted_holidays as calc_sorted_holidays,
 )
 from .holiday.holiday_validator import (
     find_holiday,
+    find_holiday_matches,
     validate_color,
     validate_date_format,
     validate_holiday_name,
 )
 from .holiday_announcer import HolidayAnnouncer
 from .holiday_management import HolidayData, HolidayService
-from .role.role_namer import generate_role_name
 from .role_management import RoleManager
 
 if TYPE_CHECKING:
@@ -441,8 +446,8 @@ class SeasonalRoles(commands.Cog):
                 return
 
             # Use the business logic to get sorted holidays
-            sorted_holidays = get_sorted_holidays(holidays)
-            upcoming_holiday, days_until = find_upcoming_holiday(holidays)
+            sorted_holidays = calc_sorted_holidays(holidays)
+            upcoming_holiday, days_until = calc_upcoming_holiday(holidays)
 
             embeds = []
             for name, days in sorted_holidays:
@@ -489,6 +494,29 @@ class SeasonalRoles(commands.Cog):
         else:
             await ctx.send("Failed to create or update the role.")
         return role
+
+    async def _ensure_dryrun_enabled(self, ctx: commands.Context) -> bool:
+        """
+        Check if dry run mode is enabled for this guild.
+
+        Args:
+            ctx: The command context
+
+        Returns:
+            bool: True if dry run is enabled, False otherwise
+
+        """
+        # Check the guild configuration to see if dry run is enabled
+        dryrun_enabled = await self.config.guild(ctx.guild).dry_run_mode()
+
+        if not dryrun_enabled:
+            await ctx.send(
+                "⚠️ Dry run mode is not enabled. "
+                "Use `!seasonal dryrun toggle on` to enable it first."
+            )
+            return False
+
+        return True
 
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
@@ -537,11 +565,38 @@ class SeasonalRoles(commands.Cog):
 
         # Get holiday details and show role preview
         holidays = await self.config.guild(ctx.guild).holidays()
-        original_name, holiday_details = find_holiday(holidays, holiday_name)
+        original_name, holiday_details, match_score = find_holiday(holidays, holiday_name)
 
         if not original_name:
             await ctx.send(f"Holiday '{holiday_name}' not found.")
             return
+
+        # For partial matches with lower confidence, confirm with user
+        if match_score < 0.75:
+            confirm_msg = await ctx.send(
+                f"Did you mean '{original_name}' ({holiday_details.get('date', 'unknown date')})? "
+                f"React with ✅ to confirm or ❌ to cancel."
+            )
+            await confirm_msg.add_reaction("✅")
+            await confirm_msg.add_reaction("❌")
+
+            def reaction_check(reaction, user):
+                return (
+                    user == ctx.author
+                    and reaction.message.id == confirm_msg.id
+                    and str(reaction.emoji) in ["✅", "❌"]
+                )
+
+            try:
+                reaction, user = await self.bot.wait_for(
+                    "reaction_add", timeout=30.0, check=reaction_check
+                )
+                if str(reaction.emoji) == "❌":
+                    await ctx.send("Preview cancelled.")
+                    return
+            except asyncio.TimeoutError:
+                await ctx.send("Confirmation timed out. Preview cancelled.")
+                return
 
         # Show what the role would look like
         color_hex = holiday_details["color"]
@@ -586,19 +641,62 @@ class SeasonalRoles(commands.Cog):
 
         # Find the holiday
         holidays = await self.config.guild(ctx.guild).holidays()
-        original_name, holiday_details = find_holiday(holidays, holiday_name)
+        original_name, holiday_details, match_score = find_holiday(holidays, holiday_name)
 
         if not original_name:
             await ctx.send(f"Holiday '{holiday_name}' not found.")
             return
 
+        # For partial matches with lower confidence, confirm with user
+        if match_score < 0.75:
+            confirm_msg = await ctx.send(
+                f"Did you mean '{original_name}' ({holiday_details.get('date', 'unknown date')})? "
+                f"React with ✅ to confirm or ❌ to cancel."
+            )
+            await confirm_msg.add_reaction("✅")
+            await confirm_msg.add_reaction("❌")
+
+            def reaction_check(reaction, user):
+                return (
+                    user == ctx.author
+                    and reaction.message.id == confirm_msg.id
+                    and str(reaction.emoji) in ["✅", "❌"]
+                )
+
+            try:
+                reaction, user = await self.bot.wait_for(
+                    "reaction_add", timeout=30.0, check=reaction_check
+                )
+                if str(reaction.emoji) == "❌":
+                    await ctx.send("Preview cancelled.")
+                    return
+            except asyncio.TimeoutError:
+                await ctx.send("Confirmation timed out. Preview cancelled.")
+                return
+
         from .holiday.holiday_data import Holiday
-        holiday_obj = Holiday(
-            name=original_name,
-            color=holiday_details.get("color", "#FFFFFF"),
-            image=holiday_details.get("image", ""),
-            date=holiday_details["date"]
-        )
+
+        # Add logging to debug the Holiday object creation
+        logger.debug(f"Creating Holiday object with original_name={original_name}, details={holiday_details}")
+
+        # Parse the date string ("MM-DD") into month and day integers
+        try:
+            date_parts = holiday_details["date"].split("-")
+            month = int(date_parts[0])
+            day = int(date_parts[1])
+
+            holiday_obj = Holiday(
+                name=original_name,
+                color=holiday_details.get("color", "#FFFFFF"),
+                image=holiday_details.get("image", ""),
+                month=month,
+                day=day
+            )
+            logger.debug(f"Successfully created Holiday object: {holiday_obj}")
+        except Exception as e:
+            logger.exception(f"Failed to create Holiday object: {e}")
+            await ctx.send(f"Error creating Holiday object: {e}")
+            return
 
         # Get the announcement channel config
         announcement_config = await self.config.guild(ctx.guild).announcement_config()
@@ -677,26 +775,66 @@ class SeasonalRoles(commands.Cog):
 
         # Find the holiday
         holidays = await self.config.guild(ctx.guild).holidays()
-        original_name, holiday_details = find_holiday(holidays, holiday_name)
+        original_name, holiday_details, match_score = find_holiday(holidays, holiday_name)
 
         if not original_name:
             await ctx.send(f"Holiday '{holiday_name}' not found.")
             return
 
+        # For partial matches with lower confidence, confirm with user
+        if match_score < 0.75:
+            confirm_msg = await ctx.send(
+                f"Did you mean '{original_name}' ({holiday_details.get('date', 'unknown date')})? "
+                f"React with ✅ to confirm or ❌ to cancel."
+            )
+            await confirm_msg.add_reaction("✅")
+            await confirm_msg.add_reaction("❌")
+
+            def reaction_check(reaction, user):
+                return (
+                    user == ctx.author
+                    and reaction.message.id == confirm_msg.id
+                    and str(reaction.emoji) in ["✅", "❌"]
+                )
+
+            try:
+                reaction, user = await self.bot.wait_for(
+                    "reaction_add", timeout=30.0, check=reaction_check
+                )
+                if str(reaction.emoji) == "❌":
+                    await ctx.send("Preview cancelled.")
+                    return
+            except asyncio.TimeoutError:
+                await ctx.send("Confirmation timed out. Preview cancelled.")
+                return
+
         from .holiday.holiday_data import Holiday
-        holiday_obj = Holiday(
-            name=original_name,
-            color=holiday_details.get("color", "#FFFFFF"),
-            image=holiday_details.get("image", ""),
-            date=holiday_details["date"]
-        )
+
+        # Parse the date string ("MM-DD") into month and day integers
+        try:
+            date_parts = holiday_details["date"].split("-")
+            month = int(date_parts[0])
+            day = int(date_parts[1])
+
+            holiday_obj = Holiday(
+                name=original_name,
+                color=holiday_details.get("color", "#FFFFFF"),
+                image=holiday_details.get("image", ""),
+                month=month,
+                day=day
+            )
+            logger.debug(f"Successfully created Holiday object: {holiday_obj}")
+        except Exception as e:
+            logger.exception(f"Failed to create Holiday object: {e}")
+            await ctx.send(f"Error creating Holiday object: {e}")
+            return
 
         # Preview the announcement for the specific phase
         await ctx.send(f"**Previewing {phase} announcement for {original_name}:**")
 
         # Call the preview method with appropriate parameters
         success, message = await self.holiday_announcer.preview_holiday_announcement(
-            holiday=holiday_obj,
+            holiday=holiday_details,
             phase=phase,
             user=ctx.author,
             guild_id=ctx.guild.id,
@@ -731,11 +869,38 @@ class SeasonalRoles(commands.Cog):
 
         # Find the holiday
         holidays = await self.config.guild(ctx.guild).holidays()
-        original_name, holiday_details = find_holiday(holidays, holiday_name)
+        original_name, holiday_details, match_score = find_holiday(holidays, holiday_name)
 
         if not original_name:
             await ctx.send(f"Holiday '{holiday_name}' not found.")
             return
+
+        # For partial matches with lower confidence, confirm with user
+        if match_score < 0.75:
+            confirm_msg = await ctx.send(
+                f"Did you mean '{original_name}' ({holiday_details.get('date', 'unknown date')})? "
+                f"React with ✅ to confirm or ❌ to cancel."
+            )
+            await confirm_msg.add_reaction("✅")
+            await confirm_msg.add_reaction("❌")
+
+            def reaction_check(reaction, user):
+                return (
+                    user == ctx.author
+                    and reaction.message.id == confirm_msg.id
+                    and str(reaction.emoji) in ["✅", "❌"]
+                )
+
+            try:
+                reaction, user = await self.bot.wait_for(
+                    "reaction_add", timeout=30.0, check=reaction_check
+                )
+                if str(reaction.emoji) == "❌":
+                    await ctx.send("Preview cancelled.")
+                    return
+            except asyncio.TimeoutError:
+                await ctx.send("Confirmation timed out. Preview cancelled.")
+                return
 
         # Check if banner is configured
         if "banner" not in holiday_details:
@@ -815,13 +980,13 @@ class SeasonalRoles(commands.Cog):
             await ctx.send(embed=embed)
 
     @seasonal_dryrun.command(name="simulate")
-    async def dryrun_simulate(self, ctx, *, holiday_name: str):
+    async def dryrun_simulate(self, ctx, *, holiday_name: str | None = None):
         """
-        Simulate the entire lifecycle of a holiday without making actual changes.
+        Simulates what would happen during a holiday without actually making any changes.
 
-        This command will show all actions that would be taken for a holiday:
-        1. Seven days before the holiday (role creation, announcement)
-        2. On the day of the holiday (banner change, announcement)
+        This simulation shows:
+        1. The day before the holiday (role opt-in, announcement)
+        2. The day of the holiday (banner change, announcement)
         3. The day after the holiday (role removal, banner reset, announcement)
 
         Parameters
@@ -829,47 +994,93 @@ class SeasonalRoles(commands.Cog):
         ctx : discord.Context
             The invocation context.
         holiday_name : str
-            The name of the holiday to simulate.
+            The name or partial name of the holiday to simulate.
 
         """
         if not await self._ensure_dryrun_enabled(ctx):
             return
 
-        # Find the holiday
+        # If no holiday name provided, prompt with the selection menu
+        if not holiday_name:
+            await ctx.send("No holiday specified. Please use the selection menu to choose a holiday.")
+            await self.select_holiday(ctx)
+            return
+
+        # Find the holiday with our improved find_holiday function
         holidays = await self.config.guild(ctx.guild).holidays()
-        original_name, holiday_details = find_holiday(holidays, holiday_name)
+        original_name, holiday_details, match_score = find_holiday(holidays, holiday_name)
 
         if not original_name:
-            await ctx.send(f"Holiday '{holiday_name}' not found.")
+            await ctx.send(f"No holiday found matching '{holiday_name}'.")
             return
+
+        # For partial matches with lower confidence, confirm with user
+        if match_score < 0.75:
+            confirm_msg = await ctx.send(
+                f"Did you mean '{original_name}' ({holiday_details.get('date', 'unknown date')})? "
+                f"React with ✅ to confirm or ❌ to cancel."
+            )
+            await confirm_msg.add_reaction("✅")
+            await confirm_msg.add_reaction("❌")
+
+            def reaction_check(reaction, user):
+                return (
+                    user == ctx.author
+                    and reaction.message.id == confirm_msg.id
+                    and str(reaction.emoji) in ["✅", "❌"]
+                )
+
+            try:
+                reaction, user = await self.bot.wait_for(
+                    "reaction_add", timeout=30.0, check=reaction_check
+                )
+                if str(reaction.emoji) == "❌":
+                    await ctx.send("Simulation cancelled.")
+                    return
+            except asyncio.TimeoutError:
+                await ctx.send("Confirmation timed out. Simulation cancelled.")
+                return
 
         # Create Holiday object
         from .holiday.holiday_data import Holiday
-        holiday_obj = Holiday(
-            name=original_name,
-            color=holiday_details.get("color", "#FFFFFF"),
-            image=holiday_details.get("image", ""),
-            date=holiday_details["date"]
-        )
 
+        # Parse the date string ("MM-DD") into month and day integers
+        try:
+            date_parts = holiday_details["date"].split("-")
+            month = int(date_parts[0])
+            day = int(date_parts[1])
+
+            holiday_obj = Holiday(
+                name=original_name,
+                color=holiday_details.get("color", "#FFFFFF"),
+                image=holiday_details.get("image", ""),
+                month=month,
+                day=day
+            )
+            logger.debug(f"Successfully created Holiday object for simulation: {holiday_obj}")
+        except Exception as e:
+            logger.exception(f"Failed to create Holiday object for simulation: {e}")
+            await ctx.send(f"Error creating Holiday object: {e}")
+            return
+
+        # Continue with the original implementation for simulation
         await ctx.send(f"## **SIMULATING HOLIDAY LIFECYCLE: {original_name}**")
         await ctx.send("This will show what would happen at each phase of the holiday.")
 
-        # Phase 1: 7 days before
-        await ctx.send("\n## **PHASE 1: 7 DAYS BEFORE THE HOLIDAY**")
-        await ctx.send("The following would happen 7 days before the holiday:")
+        # Define constants for simulation
+        DAYS_BEFORE_ANNOUNCEMENT = 7
+
+        # Phase 1: Week before holiday
+        await ctx.send("\n## **PHASE 1: DAYS BEFORE THE HOLIDAY**")
+        await ctx.send(f"The following would happen {DAYS_BEFORE_ANNOUNCEMENT} days before the holiday:")
 
         # Show role creation
         await ctx.send("**Actions:**")
-        role_name = generate_role_name(original_name, holiday_details["date"])
-        role_color = holiday_details.get("color", "#FFFFFF")
-        await ctx.send(f"- Holiday role would be created: `{role_name}` with color `{role_color}`")
-
-        estimated_members = len([m for m in ctx.guild.members if not m.bot])
-        await ctx.send(f"- Approximately {estimated_members} members would receive this role")
+        await ctx.send("- Holiday role would be created (if it doesn't exist)")
+        await ctx.send("- Members would be able to opt-in to receive the role")
 
         # Show announcement
-        await ctx.send("**Announcement that would be sent 7 days before the holiday:**")
+        await ctx.send("**Announcement that would be sent before the holiday:**")
 
         await self.holiday_announcer.preview_holiday_announcement(
             holiday=holiday_obj,
@@ -929,3 +1140,461 @@ class SeasonalRoles(commands.Cog):
         # Final summary
         await ctx.send("\n## **SIMULATION COMPLETE**")
         await ctx.send("This simulation shows what would happen during an actual holiday without making real changes.")
+
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True)
+    @seasonal.command(name="forceholiday")
+    async def force_holiday(self, ctx: commands.Context, *holiday_name_parts: str) -> None:
+        """
+        Force apply a holiday by name (partial matching supported).
+
+        Examples:
+        !seasonal forceholiday spring      (matches Spring Blossom Festival)
+        !seasonal forceholiday new year    (matches New Year's Celebration)
+
+        """
+        holiday_name = " ".join(holiday_name_parts).lower()
+        guild = ctx.guild
+        holidays = await self.config.guild(guild).holidays()
+        dry_run_mode = await self.config.guild(guild).dry_run_mode()
+
+        logger.debug(f"Processing forceholiday for '{holiday_name}' with dry run mode set to {dry_run_mode}.")
+
+        # Use improved find_holiday function with partial matching
+        original_name, holiday_details, match_score = find_holiday(holidays, holiday_name)
+
+        if not original_name or not holiday_details:
+            await ctx.send(f"No holiday found matching '{holiday_name}'.")
+            return
+
+        # For partial matches below a certain confidence, confirm with the user
+        if match_score < 0.75:
+            confirm_msg = await ctx.send(
+                f"Did you mean '{original_name}' ({holiday_details.get('date', 'unknown date')})? "
+                f"React with ✅ to confirm or ❌ to cancel."
+            )
+            await confirm_msg.add_reaction("✅")
+            await confirm_msg.add_reaction("❌")
+
+            def reaction_check(reaction, user):
+                return (
+                    user == ctx.author
+                    and reaction.message.id == confirm_msg.id
+                    and str(reaction.emoji) in ["✅", "❌"]
+                )
+
+            try:
+                reaction, user = await self.bot.wait_for(
+                    "reaction_add", timeout=30.0, check=reaction_check
+                )
+                if str(reaction.emoji) == "❌":
+                    await ctx.send("Command cancelled.")
+                    return
+            except asyncio.TimeoutError:
+                await ctx.send("Confirmation timed out. Command cancelled.")
+                return
+
+        # Continue with original implementation
+        save_path = os.path.join(os.path.dirname(__file__), f"assets/guild-banner-non-holiday-{guild.id}.png")
+        try:
+            saved_path = await fetch_and_save_guild_banner(guild, save_path)
+            if saved_path:
+                await self.config.guild(guild).banner_management.set_raw("original_banner_path", value=saved_path)
+                logger.info("Original banner saved.")
+            else:
+                logger.error("Failed to save the original banner.")
+                await ctx.send("Failed to save the original banner. Please check the logs for more details.")
+        except Exception as e:
+            logger.exception(f"Error saving the original banner: {e}")
+            await ctx.send(f"An error occurred while saving the original banner: {e}")
+
+        # Apply the holiday banner
+        if "banner" in holiday_details:
+            holiday_banner_path = os.path.join(os.path.dirname(__file__), holiday_details["banner"])
+            try:
+                await self.change_server_banner(guild, holiday_banner_path)
+                logger.info(f"Updated guild banner for '{original_name}'.")
+            except Exception as e:
+                logger.exception(f"Error updating guild banner for '{original_name}': {e}")
+                await ctx.send(f"An error occurred while updating the guild banner for '{original_name}': {e}")
+        else:
+            await ctx.send(f"No banner specified for '{original_name}'.")
+
+        # The validate_holiday_exists expects original find_holiday format, so we need to adapt
+        exists, message = await self.holiday_service.validate_holiday_exists(holidays, original_name)
+        if not exists:
+            logger.error(f"Failed to find holiday: {message}")
+            await ctx.send(message or "An error occurred.")
+            return
+
+        success, message = await self.holiday_service.remove_all_except_current_holiday_role(guild, original_name)
+        if message:
+            logger.debug(message)
+            await ctx.send(message)
+        if not success:
+            logger.error("Failed to clear other holidays.")
+            return
+
+        success, message = await self.holiday_service.apply_holiday_role(guild, original_name)
+        if message:
+            logger.debug(message)
+            await ctx.send(message)
+        if not success:
+            logger.error("Failed to apply holiday role.")
+
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True)
+    @seasonal.command(name="banner")
+    async def change_server_banner_command(self, ctx, url: str | None = None):
+        """Command to change the server banner from a URL or an uploaded image."""
+        if not ctx.guild:
+            await ctx.send("This command can only be used in a server.")
+            return
+
+        if not ctx.author.guild_permissions.manage_guild:
+            await ctx.send("You need the 'Manage Server' permission to use this command.")
+            return
+
+        if ctx.guild.premium_tier < 2:
+            await ctx.send("This server needs to be at least level 2 boosted to change the banner.")
+            return
+
+        # Determine the source of the image
+        if not url and len(ctx.message.attachments) == 0:
+            await ctx.send("Please provide a URL or upload an image.")
+            return
+        if len(ctx.message.attachments) > 0:
+            if url:
+                await ctx.send("Please provide either a URL or an uploaded image, not both.")
+                return
+            url = ctx.message.attachments[0].url
+
+        try:
+            from utilities.image_utils import get_image_handler
+
+            # Use the factory to get the appropriate image handler for the URL
+            image_handler = get_image_handler(url)
+            image_bytes = await image_handler.fetch_image_data()
+
+            # Update the guild's banner
+            await ctx.guild.edit(banner=image_bytes)
+
+            # Save the banner path as the non-holiday banner
+            save_path = os.path.join(os.path.dirname(__file__), f"assets/guild-banner-non-holiday-{ctx.guild.id}.png")
+            await fetch_and_save_guild_banner(ctx.guild, save_path)
+            await self.config.guild(ctx.guild).banner_management.set_raw("original_banner_path", value=save_path)
+            await ctx.send("Banner changed successfully and set as the non-holiday banner.")
+
+        except Exception as e:
+            await ctx.send(f"An error occurred: {e}")
+
+    async def change_server_banner(self, guild, url):
+        """Helper method to change the server banner using the image_utils handlers."""
+        try:
+            from utilities.image_utils import get_image_handler
+
+            # Use the factory to get the appropriate image handler for the URL
+            image_handler = get_image_handler(url)
+            image_bytes = await image_handler.fetch_image_data()
+
+            # Update the guild's banner
+            await guild.edit(banner=image_bytes)
+
+        except Exception as e:
+            return f"An error occurred: {e}"
+        else:
+            return "Banner changed successfully!"
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        """
+        Handles the event when a member joins the server by automatically adding them to the opt-in users list
+        and assigning them any relevant holiday roles based on the current date.
+
+        This method checks if the joining member is a bot and skips further processing if true. For non-bot members,
+        it performs the following operations:
+        1. Adds the member to the 'opt_in_users' list if they are not already included.
+        2. Checks the current date against configured holidays in the guild's settings.
+        3. Assigns the corresponding holiday role to the member if the current date matches any holiday date.
+        """
+        if member.bot:
+            return  # Skip bots
+
+        opt_in_users = await self.config.guild(member.guild).opt_in_users()
+
+        if member.id not in opt_in_users:
+            opt_in_users.append(member.id)
+            await self.config.guild(member.guild).opt_in_users.set(opt_in_users)
+            logger.info(f"Added {member.display_name} to opt-in users.")
+
+        # Check and assign holiday roles using the existing method
+        await self.check_holidays(member.guild, force=True)
+
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True)
+    @seasonal.command(name="select")
+    async def select_holiday(self, ctx: commands.Context):
+        """
+        Interactive holiday selection with numbered options.
+
+        This command shows a numbered list of all configured holidays,
+        making it easy to select one without typing the full name.
+
+        After selecting a holiday, you can choose to:
+        - force: Apply the holiday immediately
+        - preview: See a preview of the holiday
+        - info: Get detailed information about the holiday
+        """
+        guild = ctx.guild
+        holidays = await self.config.guild(guild).holidays()
+
+        if not holidays:
+            await ctx.send("No holidays have been configured.")
+            return
+
+        # Create a sorted list of holidays based on date
+        sorted_holidays = []
+        for name, details in holidays.items():
+            # Extract month and day from date format "MM-DD"
+            date_parts = details.get("date", "").split("-")
+            if len(date_parts) == 2:
+                try:
+                    month, day = map(int, date_parts)
+                    # Sort by month then day
+                    sorted_holidays.append((name, details, month * 100 + day))
+                except ValueError:
+                    # If date is invalid, just add to the end
+                    sorted_holidays.append((name, details, 9999))
+            else:
+                sorted_holidays.append((name, details, 9999))
+
+        # Sort by date value
+        sorted_holidays.sort(key=lambda x: x[2])
+
+        # Create the numbered list
+        holiday_list = []
+        for i, (name, details, _) in enumerate(sorted_holidays, 1):
+            date = details.get("date", "No date")
+            display_name = details.get("display_name", name)
+            holiday_list.append(f"{i}. **{display_name}** ({date}) - {name}")
+
+        # Split into pages if there are many holidays
+        page_size = 10
+        pages = [holiday_list[i:i+page_size] for i in range(0, len(holiday_list), page_size)]
+
+        for i, page in enumerate(pages):
+            embed = discord.Embed(
+                title="Available Holidays",
+                description="\n".join(page),
+                color=discord.Color.blue()
+            )
+            if len(pages) > 1:
+                embed.set_footer(text=f"Page {i+1}/{len(pages)}")
+            await ctx.send(embed=embed)
+
+        # Prompt for selection
+        await ctx.send("Enter the number of the holiday you want to select:")
+
+        def check(m):
+            # Check if message is from the author, in the same channel, and contains a valid number
+            if m.author != ctx.author or m.channel != ctx.channel:
+                return False
+            try:
+                num = int(m.content)
+                return 1 <= num <= len(sorted_holidays)
+            except ValueError:
+                return False
+
+        try:
+            msg = await self.bot.wait_for("message", check=check, timeout=30.0)
+            selection = int(msg.content) - 1  # Convert to zero-indexed
+
+            selected_name, selected_details, _ = sorted_holidays[selection]
+            display_name = selected_details.get("display_name", selected_name)
+
+            # Confirm the selection
+            confirm = await ctx.send(
+                f"Selected: **{display_name}** ({selected_details.get('date', 'No date')})\n"
+                f"What would you like to do with this holiday?\n"
+                f"1️⃣ - Force apply the holiday now\n"
+                f"2️⃣ - Preview the holiday\n"
+                f"3️⃣ - Show holiday information"
+            )
+
+            # Add reaction options
+            options = ["1️⃣", "2️⃣", "3️⃣"]
+            for option in options:
+                await confirm.add_reaction(option)
+
+            def reaction_check(reaction, user):
+                return (
+                    user == ctx.author
+                    and reaction.message.id == confirm.id
+                    and str(reaction.emoji) in options
+                )
+
+            reaction, user = await self.bot.wait_for(
+                "reaction_add", timeout=30.0, check=reaction_check
+            )
+
+            # Process the selected action
+            emoji = str(reaction.emoji)
+            if emoji == "1️⃣":
+                # Force apply the holiday
+                await ctx.send(f"Applying holiday: **{display_name}**...")
+                await self.force_holiday(ctx, holiday_name=selected_name)
+            elif emoji == "2️⃣":
+                # Preview the holiday
+                await ctx.send(f"Previewing holiday: **{display_name}**...")
+                await self.dryrun_simulate(ctx, holiday_name=selected_name)
+            elif emoji == "3️⃣":
+                # Show holiday info
+                color_hex = selected_details.get("color", "#000000")
+                try:
+                    color = int(color_hex.replace("#", ""), 16)
+                except ValueError:
+                    color = 0
+
+                embed = discord.Embed(
+                    title=f"Holiday: {display_name}",
+                    color=color
+                )
+
+                # Add fields for each property
+                for key, value in selected_details.items():
+                    # Skip complex nested objects like announcements
+                    if key != "announcements" and not isinstance(value, dict):
+                        embed.add_field(name=key, value=value, inline=False)
+
+                await ctx.send(embed=embed)
+
+        except asyncio.TimeoutError:
+            await ctx.send("Selection timed out.")
+
+    @commands.guild_only()
+    @commands.has_permissions(manage_roles=True)
+    @seasonal.command(name="find")
+    async def find_holidays(self, ctx: commands.Context, *, search_term: str):
+        """
+        Find holidays by partial name matching.
+
+        This command allows you to search for holidays using just a part of their name.
+        For example, 'spring' will find 'Spring Blossom Festival'.
+
+        If multiple holidays match your search, they will all be listed with
+        their confidence scores showing how well they match your search.
+
+        Parameters
+        ----------
+        search_term : str
+            The partial name to search for.
+
+        """
+        if not search_term or len(search_term.strip()) < 2:
+            await ctx.send("Please provide a search term with at least 2 characters.")
+            return
+
+        holidays = await self.config.guild(ctx.guild).holidays()
+        if not holidays:
+            await ctx.send("No holidays have been configured for this server.")
+            return
+
+        # Find all potential matches
+        matches = find_holiday_matches(holidays, search_term, threshold=0.3)
+
+        if not matches:
+            await ctx.send(f"No holidays found matching '{search_term}'. Try a different search term.")
+            return
+
+        # Create an embed to show the results
+        embed = discord.Embed(
+            title=f"Holidays matching '{search_term}'",
+            description=f"Found {len(matches)} matching holiday(s)",
+            color=discord.Color.blue()
+        )
+
+        # Add each match to the embed
+        for i, (name, details, score) in enumerate(matches, 1):
+            confidence_percent = int(score * 100)
+            date = details.get("date", "No date")
+            display_name = details.get("display_name", name)
+
+            # Special format for exact matches
+            if score >= 0.99:
+                match_info = f"**Exact match!** - {date}"
+            else:
+                match_info = f"**{confidence_percent}% match** - {date}"
+
+            # Create field for this holiday
+            embed.add_field(
+                name=f"{i}. {display_name}",
+                value=f"{match_info}\nFull name: {name}",
+                inline=False
+            )
+
+        # Add a footer with usage hint
+        embed.set_footer(text="Use '!seasonal select' to interactively choose a holiday")
+
+        await ctx.send(embed=embed)
+
+        # For single exact matches or very high confidence matches, offer direct actions
+        if len(matches) == 1 and matches[0][2] > 0.9:
+            name, details, _ = matches[0]
+            display_name = details.get("display_name", name)
+
+            action_msg = await ctx.send(
+                f"Found exact match: **{display_name}**\n"
+                f"What would you like to do with this holiday?\n"
+                f"1️⃣ - Force apply the holiday now\n"
+                f"2️⃣ - Preview the holiday\n"
+                f"3️⃣ - Show holiday information"
+            )
+
+            # Add reaction options
+            options = ["1️⃣", "2️⃣", "3️⃣"]
+            for option in options:
+                await action_msg.add_reaction(option)
+
+            def reaction_check(reaction, user):
+                return (
+                    user == ctx.author
+                    and reaction.message.id == action_msg.id
+                    and str(reaction.emoji) in options
+                )
+
+            try:
+                reaction, user = await self.bot.wait_for(
+                    "reaction_add", timeout=30.0, check=reaction_check
+                )
+
+                # Process the selected action
+                emoji = str(reaction.emoji)
+                if emoji == "1️⃣":
+                    await ctx.send(f"Applying holiday: **{display_name}**...")
+                    await self.force_holiday(ctx, holiday_name=name)
+                elif emoji == "2️⃣":
+                    await ctx.send(f"Previewing holiday: **{display_name}**...")
+                    await self.dryrun_simulate(ctx, holiday_name=name)
+                elif emoji == "3️⃣":
+                    # Use the existing select_holiday logic to show detailed info
+                    color_hex = details.get("color", "#000000")
+                    try:
+                        color = int(color_hex.replace("#", ""), 16)
+                    except ValueError:
+                        color = 0
+
+                    info_embed = discord.Embed(
+                        title=f"Holiday: {display_name}",
+                        color=color
+                    )
+
+                    # Add fields for each property
+                    for key, value in details.items():
+                        # Skip complex nested objects like announcements
+                        if key != "announcements" and not isinstance(value, dict):
+                            info_embed.add_field(name=key, value=value, inline=False)
+
+                    await ctx.send(embed=info_embed)
+
+            except asyncio.TimeoutError:
+                await ctx.send("Action selection timed out.")

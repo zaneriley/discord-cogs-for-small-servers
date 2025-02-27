@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import ClassVar
 
-from cogs.utilities.llm.llm_utils import create_llm_chain
+from utilities.llm.llm_utils import create_llm_chain
 
 logger = logging.getLogger(__name__)
 

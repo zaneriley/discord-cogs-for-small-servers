@@ -146,10 +146,12 @@ class HolidayService:
         """
         Check if the holiday exists in the given dictionary of holidays.
 
+        Uses smart partial matching to find holidays even with incomplete names.
+
         Args:
         ----
             holidays (dict): A dictionary of holidays.
-            holiday_name (str): The name of the holiday to check.
+            holiday_name (str): The name of the holiday to check (can be partial).
 
         Returns:
         -------
@@ -160,15 +162,20 @@ class HolidayService:
             logger.warning("Empty or invalid holiday name provided.")
             return False, "Holiday name cannot be empty or invalid!"
 
-        # Use the find_holiday business logic function instead of reimplementing
-        original_name, details = find_holiday(holidays, holiday_name)
+        # Use the improved find_holiday function which also returns a confidence score
+        original_name, details, confidence = find_holiday(holidays, holiday_name)
 
         if original_name is not None:
-            logger.debug(f"Holiday '{holiday_name}' found as '{original_name}'.")
-            return True, None
+            # If we found a match with reasonable confidence
+            if confidence >= 0.5:  # Threshold for acceptable matches
+                logger.debug(f"Holiday '{holiday_name}' matched to '{original_name}' with confidence {confidence:.2f}.")
+                return True, None
+            # Match found but with low confidence
+            logger.warning(f"Holiday '{holiday_name}' matched to '{original_name}' but with low confidence ({confidence:.2f}).")
+            return False, f"Holiday '{holiday_name}' matched to '{original_name}' but with low confidence. Please be more specific."
 
-        logger.warning(f"Holiday '{holiday_name}' does not exist.")
-        return False, f"Holiday '{holiday_name}' does not exist!"
+        logger.warning(f"No holiday found matching '{holiday_name}'.")
+        return False, f"No holiday found matching '{holiday_name}'."
 
     # These validation methods should be removed since we now use the business logic
     # We'll keep the _normalize_name method since it's used by other methods
@@ -218,7 +225,7 @@ class HolidayService:
             holidays = await self.repository.get_holidays(guild)
 
             # Use business logic to find the holiday
-            original_name, holiday_details = find_holiday(holidays, holiday_name)
+            original_name, holiday_details, match_score = find_holiday(holidays, holiday_name)
 
             if not original_name or not holiday_details:
                 logger.error(f"Holiday '{holiday_name}' not found when applying role.")

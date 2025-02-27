@@ -18,13 +18,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import discord
-from cogs.utilities.announcement_utils import (
+
+from utilities.announcement_utils import (
     HOLIDAY_STYLES,
     create_embed_announcement,
     preview_announcement,
     send_holiday_announcement,
 )
-from cogs.utilities.date_utils import DateUtil
+from utilities.date_utils import DateUtil
 
 if TYPE_CHECKING:
     from redbot.core import Config
@@ -447,10 +448,6 @@ class HolidayAnnouncer:
                     color_hex = self.holidays_data[holiday_name]["color"]
                     embed_params["color"] = int(color_hex[1:], 16)
 
-                # Add image if available
-                if "image" in self.holidays_data[holiday_name]:
-                    embed_params["image_url"] = self.holidays_data[holiday_name]["image"]
-
                 return {
                     "holiday_name": holiday_name,
                     "phase": phase,
@@ -807,6 +804,18 @@ class HolidayAnnouncer:
             Tuple of (success, message)
 
         """
+        # Add debug logging to help diagnose issues with holiday object
+        log.debug(
+            f"Previewing holiday announcement for phase {phase}, "
+            f"holiday={holiday}, days_until={days_until}"
+        )
+
+        # Log the type and structure of the holiday object to help with debugging
+        if hasattr(holiday, "__class__"):
+            log.debug(f"Holiday object is of type {type(holiday).__name__} with attributes: {dir(holiday)}")
+        else:
+            log.debug(f"Holiday object is of type {type(holiday).__name__} with values: {holiday}")
+
         try:
             guild = self.bot.get_guild(guild_id)
             if not guild:
@@ -841,7 +850,7 @@ class HolidayAnnouncer:
                 # Add a preview header to the embed
                 embed_params = preview_config.get("embed_params", {}).copy()
                 original_title = embed_params.get("title", "")
-                embed_params["title"] = f"PREVIEW: {original_title}"
+                embed_params["title"] = original_title
 
                 # Add footer note
                 footer_text = embed_params.get("footer_text", "")
@@ -869,7 +878,7 @@ class HolidayAnnouncer:
                             mention_info = f"Role with ID {role_id} would be mentioned"
 
                     if mention_info:
-                        content = f"**PREVIEW:** {mention_info}"
+                        content = mention_info
 
                 # Send to the current channel
                 try:

@@ -6,6 +6,7 @@ aiofiles
 asyncio
 pillow
 wcwidth
+pytz
 aiohttp>=3.8.1
 python-dotenv
 discord.py>=1.7.3

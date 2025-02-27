@@ -465,12 +465,12 @@ async def preview_announcement(
         # Add a preview header to the message
         if announcement_type == "text":
             original_content = preview_config.get("content", "")
-            preview_config["content"] = f"**PREVIEW - This is how your announcement will appear:**\n\n{original_content}"
+            preview_config["content"] = original_content
         elif "embed_params" in preview_config:
             # Add preview notice to embed title
             embed_params = preview_config.get("embed_params", {})
             original_title = embed_params.get("title", "")
-            embed_params["title"] = f"PREVIEW: {original_title}"
+            embed_params["title"] = original_title
 
             # Add footer note
             footer_text = embed_params.get("footer_text", "")

@@ -6,8 +6,9 @@ that can be used by other plugins. This avoids relying on a standalone LLM cog.
 """
 
 from cogs.llm.config import LLMConfig
-from cogs.utilities.llm.chain import LLMChain
-from cogs.utilities.llm.providers.openai_provider import OpenAIProvider
+
+from utilities.llm.chain import LLMChain
+from utilities.llm.providers.openai_provider import OpenAIProvider
 
 
 def create_llm_chain() -> LLMChain:
