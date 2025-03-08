@@ -10,3 +10,7 @@ pytz
 aiohttp>=3.8.1
 python-dotenv
 discord.py>=1.7.3
+pytest>=8.0.0
+pytest-asyncio>=0.25.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0

@@ -1,0 +1,102 @@
+{
+  "New Year's Day": {
+    "date": "01-01",
+    "color": "#FFFFFF",
+    "image": "assets/new-year.png",
+    "display_name": "New Year's Day",
+    "announcements": {
+      "before": {
+        "title": "The new year is almost here! Time to make those resolutions.",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "Happy New Year! May this year bring joy and success.",
+        "footer": "{holiday_name} is today!"
+      },
+      "after": {
+        "title": "The new year has begun. How are those resolutions going?",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Spring Equinox": {
+    "date": "03-20",
+    "color": "#A3E4D7",
+    "image": "assets/spring.png",
+    "display_name": "Spring Equinox",
+    "announcements": {
+      "before": {
+        "title": "Spring is almost here! Get ready for warmer days.",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "Welcome Spring! The days are getting longer and brighter.",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "Spring has arrived. Time to enjoy the blooming flowers!",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Summer Solstice": {
+    "date": "06-21",
+    "color": "#F9E79F",
+    "image": "assets/summer.png",
+    "display_name": "Summer Solstice",
+    "announcements": {
+      "before": {
+        "title": "Summer is coming! Prepare for the longest day of the year.",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "It's the Summer Solstice! Enjoy the extra daylight today.",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "Summer is in full swing. Time for outdoor adventures!",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Autumn Equinox": {
+    "date": "09-22",
+    "color": "#E59866",
+    "image": "assets/autumn.png",
+    "display_name": "Autumn Equinox",
+    "announcements": {
+      "before": {
+        "title": "Fall is approaching! Get ready for colorful leaves.",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "Welcome Autumn! Time for pumpkins and cozy sweaters.",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "Fall has arrived. Enjoy the crisp air and changing colors!",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  },
+  "Winter Solstice": {
+    "date": "12-21",
+    "color": "#85C1E9",
+    "image": "assets/winter.png",
+    "display_name": "Winter Solstice",
+    "announcements": {
+      "before": {
+        "title": "Winter is coming! Prepare for the shortest day of the year.",
+        "footer": "{holiday_name} in {days_until} days"
+      },
+      "during": {
+        "title": "It's the Winter Solstice! From here, the days get longer.",
+        "footer": "Happy {holiday_name}!"
+      },
+      "after": {
+        "title": "Winter is here. Time for hot cocoa and indoor activities!",
+        "footer": "{holiday_name} has ended"
+      }
+    }
+  }
+} 

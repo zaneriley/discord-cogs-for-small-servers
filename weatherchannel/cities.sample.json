@@ -1,0 +1,35 @@
+{
+  "cities": {
+    "New York": {
+      "api_type": "weather-gov",
+      "coordinates": [40.7128, -74.0060],
+      "display_name": "New York City"
+    },
+    "Los Angeles": {
+      "api_type": "open-meteo",
+      "coordinates": [34.0522, -118.2437],
+      "display_name": "Los Angeles"
+    },
+    "Chicago": {
+      "api_type": "weather-gov",
+      "coordinates": [41.8781, -87.6298],
+      "display_name": "Chicago"
+    },
+    "Miami": {
+      "api_type": "open-meteo",
+      "coordinates": [25.7617, -80.1918],
+      "display_name": "Miami"
+    },
+    "Denver": {
+      "api_type": "weather-gov",
+      "coordinates": [39.7392, -104.9903],
+      "display_name": "Denver"
+    }
+  },
+  "special_options": {
+    "Everywhere": {
+      "display_name": "Everywhere",
+      "description": "All configured cities"
+    }
+  }
+} 

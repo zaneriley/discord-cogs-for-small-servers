@@ -28,20 +28,64 @@ class WeatherAPIHandler(ABC):
     def _reraise_exception(self, e: Exception, message: str, location: str):
         """Helper function to log and re-raise exceptions."""
         logger.exception(f"{message} for location %s: %s", location, str(e))
-        raise
+        raise ValueError(message) from e
 
 
 class OpenMeteoAPI(WeatherAPIHandler):
     BASE_URL = "https://api.open-meteo.com/v1/forecast"
 
     async def get_forecast(self, location: str):
+        # Parse location coordinates
+        try:
+            lat, lon = map(float, location.split(","))
+            logger.debug(f"OpenMeteoAPI: Fetching forecast for coordinates {lat},{lon}")
+        except (ValueError, IndexError):
+            error_msg = f"Invalid coordinates format: {location}. Expected 'latitude,longitude'"
+            logger.exception(error_msg)
+            raise ValueError(error_msg) from None
+
+        # Set up parameters for OpenMeteo API with more comprehensive data
         params = {
-            "latitude": location.split(",")[0],
-            "longitude": location.split(",")[1],
-            "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m",
-            "daily": "temperature_2m_max,temperature_2m_min,sunrise,sunset",
+            "latitude": lat,
+            "longitude": lon,
+            "current": [
+                "temperature_2m",
+                "relative_humidity_2m",
+                "apparent_temperature",
+                "is_day",
+                "precipitation",
+                "rain",
+                "showers",
+                "snowfall",
+                "weather_code",
+                "wind_speed_10m",
+                "wind_direction_10m",
+                "wind_gusts_10m"
+            ],
+            "hourly": [
+                "temperature_2m",
+                "relative_humidity_2m",
+                "apparent_temperature",
+                "precipitation_probability",
+                "precipitation",
+                "weather_code",
+                "wind_speed_10m",
+                "wind_direction_10m"
+            ],
+            "daily": [
+                "weather_code",
+                "temperature_2m_max",
+                "temperature_2m_min",
+                "apparent_temperature_max",
+                "apparent_temperature_min",
+                "sunrise",
+                "sunset",
+                "precipitation_sum",
+                "precipitation_probability_max"
+            ],
             "timezone": "auto",
         }
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(self.BASE_URL, params=params) as response:
@@ -49,7 +93,6 @@ class OpenMeteoAPI(WeatherAPIHandler):
                     return await response.json()
         except aiohttp.ClientError as e:
             self._reraise_exception(e, "Error fetching forecast from Open-Meteo API", location)
-
 
     async def get_alerts(self, location: str):
         # Open-Meteo API doesn't have explicit alerts in the same way as weather.gov, so this is a placeholder.

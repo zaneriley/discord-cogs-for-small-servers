@@ -1,6 +1,7 @@
 import pytest
-from cogs.utilities.llm.chain import LLMChain, LLMNode
-from cogs.utilities.llm.providers.base import BaseLLMProvider, LLMResponse
+
+from utilities.llm.chain import LLMChain, LLMNode
+from utilities.llm.providers.base import BaseLLMProvider, LLMResponse
 
 
 # Create a dummy provider that appends text to the prompt.

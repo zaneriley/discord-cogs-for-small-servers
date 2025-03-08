@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 from .providers.base import BaseLLMProvider, LLMResponse
 
@@ -45,18 +45,38 @@ class LLMNode:
 
 
 class LLMChain:
-    def __init__(self, nodes: list[LLMNode], debug: bool = False):
+    def __init__(self, nodes: Optional[list[LLMNode]] = None, debug: bool = False):
         """
         Initializes an LLMChain with a sequence of LLMNodes.
 
         Args:
         ----
-            nodes (List[LLMNode]): The nodes in the chain, in processing order.
+            nodes (List[LLMNode], optional): The nodes in the chain, in processing order. Defaults to empty list.
             debug (bool, optional): Flag to enable debug logging. Defaults to False.
 
         """
-        self.nodes = nodes
+        self.nodes = nodes or []
         self.debug = debug
+
+    def add_node(self, name: str, provider: BaseLLMProvider, prompt_modifier: Callable[[str], str] = lambda x: x):
+        """
+        Add a node to the chain.
+
+        Args:
+        ----
+            name (str): A unique name for this node.
+            provider (BaseLLMProvider): An instance of a provider that implements send_prompt.
+            prompt_modifier (Callable[[str], str], optional): A function to modify the input prompt.
+                Defaults to the identity function.
+
+        Returns:
+        -------
+            LLMChain: Self, for method chaining.
+
+        """
+        node = LLMNode(name=name, provider=provider, prompt_modifier=prompt_modifier)
+        self.nodes.append(node)
+        return self
 
     async def run(self, initial_prompt: str, **kwargs) -> LLMResponse:
         """

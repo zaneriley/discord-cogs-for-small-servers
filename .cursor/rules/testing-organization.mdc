@@ -1,0 +1,198 @@
+---
+description: practical instructions for organizing, writing, and running tests for Discord cogs. Following these guidelines will help maintain a consistent and reliable test suite.
+globs: test_*, tests/
+alwaysApply: false
+---
+## Test Organization
+
+### Directory Structure
+
+All tests **must** be organized within each cog's own `tests` directory:
+
+```
+cogs/
+  cog_name/              # Main cog directory
+    __init__.py          # Cog initialization
+    cog_file.py          # Main cog file
+    module.py            # Business logic
+    tests/               # Test directory for this specific cog
+      __init__.py        # Makes tests a proper package
+      conftest.py        # Test fixtures and configuration
+      test_module.py     # Tests for module.py
+```
+
+❌ **NEVER** place tests in a global `__tests__` directory.  
+✅ **ALWAYS** place tests within the cog's own `tests` directory.
+
+### Test File Naming
+
+- Test files must follow the pattern `test_*.py` (e.g., `test_weather_service.py`)
+- Test function names must be prefixed with `test_` (e.g., `test_fetch_weather_data()`)
+- Test class names, if used, must be prefixed with `Test` (e.g., `TestWeatherService`)
+
+## Running Tests
+
+Always use Docker to run tests to ensure a consistent environment:
+
+### Run All Tests
+
+```bash
+docker compose run --rm tests
+```
+
+### Run Tests for a Specific Cog
+
+```bash
+docker compose run --rm tests pytest cogs/cog_name/tests -v
+```
+
+### Run a Specific Test File
+
+```bash
+docker compose run --rm tests pytest cogs/cog_name/tests/test_specific_module.py -v
+```
+
+### Run a Specific Test Function
+
+```bash
+docker compose run --rm tests pytest cogs/cog_name/tests/test_specific_module.py::test_specific_function -v --remove-orphans
+```
+
+## Writing Tests
+
+### Basic Test Structure
+
+Follow the Arrange-Act-Assert pattern:
+
+```python
+def test_weather_formatter():
+    # Arrange - set up test data
+    mock_weather_data = {"temperature": 25.5, "condition": "Sunny"}
+    
+    # Act - call the function being tested
+    formatted = format_weather_data(mock_weather_data)
+    
+    # Assert - verify the results
+    assert "26°" in formatted  # Rounded temperature
+    assert "Sunny" in formatted
+```
+
+### Testing Asynchronous Code
+
+Use `pytest.mark.asyncio` for testing asynchronous functions:
+
+```python
+import pytest
+
+@pytest.mark.asyncio
+async def test_fetch_weather():
+    # Arrange
+    service = WeatherService()
+    mock_coordinates = (37.7749, -122.4194)
+    
+    # Act
+    result = await service.fetch_weather("open-meteo", mock_coordinates, "San Francisco")
+    
+    # Assert
+    assert result["ᴄɪᴛʏ"] == "San Francisco"
+    assert "ʜ°ᴄ" in result
+```
+
+### Mocking External Dependencies
+
+Always mock external services and APIs:
+
+```python
+from unittest.mock import AsyncMock, patch
+
+@pytest.mark.asyncio
+async def test_fetch_weather_with_mock():
+    # Create a mock for the API client
+    mock_client = AsyncMock()
+    mock_response = AsyncMock()
+    mock_response.json.return_value = {"temperature": 25.5}
+    mock_client.return_value.__aenter__.return_value = mock_response
+    
+    # Patch the API client
+    with patch("aiohttp.ClientSession.get", mock_client):
+        service = WeatherService()
+        result = await service.fetch_weather(...)
+        
+        # Assert expected results
+        assert result is not None
+```
+
+### Using Fixtures
+
+Define reusable fixtures in your `conftest.py`:
+
+```python
+# cogs/weatherchannel/tests/conftest.py
+import pytest
+from unittest.mock import AsyncMock
+
+@pytest.fixture
+def mock_weather_data():
+    """Provide standard mock weather data for tests."""
+    return {
+        "temperature_2m": 25.5,
+        "humidity": 65,
+        "precipitation": 0.0,
+        "weather_code": 0
+    }
+
+@pytest.fixture
+def mock_api_client():
+    def _create_mock(response_data):
+        mock = AsyncMock()
+        mock_response = AsyncMock()
+        mock_response.json.return_value = response_data
+        mock.return_value.__aenter__.return_value = mock_response
+        return mock
+    return _create_mock
+```
+
+Then use these fixtures in your tests:
+
+```python
+@pytest.mark.asyncio
+async def test_with_fixtures(mock_weather_data, mock_api_client):
+    # Use the fixtures to set up the test
+    client = mock_api_client(mock_weather_data)
+    
+    with patch("aiohttp.ClientSession.get", client):
+        # Test code that uses the mocked client
+        ...
+```
+
+## Common Mistakes to Avoid
+
+### ❌ Avoid Mocking Class Directly with spec
+
+When mocking the Red-DiscordBot `Config` class, do NOT use:
+
+```python
+# This will cause errors
+config = MagicMock(spec=Config)
+```
+
+Instead, use:
+
+```python
+# This works correctly
+config = MagicMock()
+```
+
+### ❌ Avoid Test Interdependence
+
+Tests should be isolated and not depend on state created by other tests.
+
+### ❌ Avoid Hitting Real Services
+
+Never make real API calls in tests. Always mock external services.
+
+## Additional Resources
+
+- [pytest Documentation](https://docs.pytest.org/)
+- [pytest-asyncio Documentation](https://github.com/pytest-dev/pytest-asyncio)
+- [unittest.mock Documentation](https://docs.python.org/3/library/unittest.mock.html)

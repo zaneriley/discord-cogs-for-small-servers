@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import discord
 import pytest
-from cogs.utilities.announcement_utils import (
+
+from utilities.announcement_utils import (
     HOLIDAY_STYLES,
     HTTP_STATUS_RATE_LIMITED,
     apply_holiday_styling,
@@ -98,7 +99,7 @@ def mock_send_discord_message():
     """
     Creates a mock for the Discord send message function.
     """
-    with patch("cogs.utilities.announcement_utils.send_discord_message", new=AsyncMock(return_value=True)) as mock:
+    with patch("utilities.announcement_utils.send_discord_message", new=AsyncMock(return_value=True)) as mock:
         yield mock
 
 
@@ -202,7 +203,7 @@ async def test_send_text_announcement_success(mock_discord_client, mock_send_dis
     mock_send_discord_message.return_value = True
 
     # Patch validate_channel to always return success
-    with patch("cogs.utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))):
+    with patch("utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))):
         success, error = await send_text_announcement(
             client, 123456789, "Test announcement", "everyone", None
         )
@@ -216,7 +217,7 @@ async def test_send_text_announcement_channel_validation_failure(mock_discord_cl
     client, _, _ = mock_discord_client
 
     # Patch validate_channel to return failure
-    with patch("cogs.utilities.announcement_utils.validate_channel",
+    with patch("utilities.announcement_utils.validate_channel",
                new=AsyncMock(return_value=(False, "Channel not found"))):
         success, error = await send_text_announcement(
             client, 123456789, "Test announcement"
@@ -232,7 +233,7 @@ async def test_send_text_announcement_message_failure(mock_discord_client, mock_
     mock_send_discord_message.return_value = False
 
     # Patch validate_channel to always return success
-    with patch("cogs.utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))):
+    with patch("utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))):
         success, error = await send_text_announcement(
             client, 123456789, "Test announcement"
         )
@@ -265,8 +266,8 @@ async def test_send_text_announcement_rate_limit_retry(mock_discord_client):
         return True
 
     # Patch both validation and message sending
-    with patch("cogs.utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))), \
-         patch("cogs.utilities.announcement_utils.send_discord_message", new=AsyncMock(side_effect=send_with_rate_limit)), \
+    with patch("utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))), \
+         patch("utilities.announcement_utils.send_discord_message", new=AsyncMock(side_effect=send_with_rate_limit)), \
          patch("asyncio.sleep", new=AsyncMock()):
 
         success, error = await send_text_announcement(
@@ -290,8 +291,8 @@ async def test_send_text_announcement_rate_limit_max_retries(mock_discord_client
     http_exception.status = HTTP_STATUS_RATE_LIMITED
 
     # Patch both validation and message sending
-    with patch("cogs.utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))), \
-         patch("cogs.utilities.announcement_utils.send_discord_message",
+    with patch("utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))), \
+         patch("utilities.announcement_utils.send_discord_message",
                new=AsyncMock(side_effect=http_exception)), \
          patch("asyncio.sleep", new=AsyncMock()):
 
@@ -318,8 +319,8 @@ async def test_send_embed_announcement_success(mock_discord_client, mock_send_di
     }
 
     # Patch validate_channel to always return success
-    with patch("cogs.utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))), \
-         patch("cogs.utilities.announcement_utils.create_embed_announcement", new=AsyncMock(return_value=discord.Embed(title="Test Embed", description="Test Description"))):
+    with patch("utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))), \
+         patch("utilities.announcement_utils.create_embed_announcement", new=AsyncMock(return_value=discord.Embed(title="Test Embed", description="Test Description"))):
         success, error = await send_embed_announcement(client, 123456789, config)
 
         assert success is True
@@ -341,8 +342,8 @@ async def test_send_holiday_announcement(mock_discord_client, mock_send_discord_
     }
 
     # Patch validate_channel to always return success
-    with patch("cogs.utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))), \
-         patch("cogs.utilities.announcement_utils.send_embed_announcement",
+    with patch("utilities.announcement_utils.validate_channel", new=AsyncMock(return_value=(True, None))), \
+         patch("utilities.announcement_utils.send_embed_announcement",
                new=AsyncMock(return_value=(True, None))):
 
         success, error = await send_holiday_announcement(client, 123456789, config)
@@ -394,7 +395,7 @@ async def test_preview_announcement_embed():
     }
 
     # Patch create_embed_announcement to return a mock embed
-    with patch("cogs.utilities.announcement_utils.create_embed_announcement",
+    with patch("utilities.announcement_utils.create_embed_announcement",
               new=AsyncMock(return_value=discord.Embed(title="Test Embed", description="Test Description"))):
         success, message = await preview_announcement(
             mock_user,
@@ -426,9 +427,9 @@ async def test_preview_announcement_holiday():
     }
 
     # Patch create_embed_announcement to return a mock embed
-    with patch("cogs.utilities.announcement_utils.create_embed_announcement",
+    with patch("utilities.announcement_utils.create_embed_announcement",
               new=AsyncMock(return_value=discord.Embed(title="Christmas Announcement", description="Merry Christmas everyone!"))), \
-         patch("cogs.utilities.announcement_utils.apply_holiday_styling",
+         patch("utilities.announcement_utils.apply_holiday_styling",
               return_value={"title": "Christmas Announcement", "description": "Merry Christmas everyone!", "color": 0x00AA00}):
         success, message = await preview_announcement(
             mock_user,
