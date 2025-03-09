@@ -1,1 +1,1 @@
-# Tests for the weatherchannel cog 
+# Tests for the weatherchannel cog

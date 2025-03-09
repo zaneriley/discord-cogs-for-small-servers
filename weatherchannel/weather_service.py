@@ -1,6 +1,7 @@
 import asyncio
-import logging
 import json
+import logging
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from .config import ConfigManager
@@ -37,7 +38,7 @@ class WeatherService:
     async def fetch_weather(self, api_type: str, coords, city: str):
         """Fetch and format weather data for given coordinates."""
         logger.info(f"Fetching weather for {city} using {api_type}")
-        
+
         if api_type not in self.api_handlers:
             self.api_handlers[api_type] = WeatherAPIFactory.create_weather_api_handler(api_type)
 
@@ -78,8 +79,7 @@ class WeatherService:
                     if city == "Tokyo":
                         logger.info(f"Tokyo formatted data: {result}")
                     return result
-                else:
-                    logger.warning(f"OpenMeteo formatter doesn't have _extract_forecast_data method!")
+                logger.warning("OpenMeteo formatter doesn't have _extract_forecast_data method!")
 
             # Default formatting for other APIs
             return weather_formatter.format_individual_forecast(weather_data, city)
@@ -147,6 +147,139 @@ class WeatherService:
         except Exception as e:
             logger.exception(f"Weather summary error: {e!s}")
             return ""
+
+    async def get_weather_summary_from_raw(self, raw_forecasts: dict) -> str:
+        """
+        Generate an AI summary from raw weather data.
+
+        This method uses the raw data format provided by fetch_raw_data_for_summary
+        to generate a more detailed and accurate weather summary.
+
+        Args:
+            raw_forecasts: Dictionary of city names to their raw weather data
+
+        Returns:
+            Generated summary text
+
+        """
+        try:
+            # Create formatter using the first available API type
+            first_api_type = next(iter(self.api_handlers))
+            formatter = self._create_formatter(first_api_type)
+
+            # Check if formatter supports raw data summaries
+            if hasattr(formatter.formatter, "generate_llm_summary_from_raw"):
+                return await formatter.formatter.generate_llm_summary_from_raw(raw_forecasts)
+
+            # Fall back to converting raw data to the format expected by the existing method
+            logger.warning("Formatter doesn't support raw data summaries, converting to compatible format")
+
+            # Convert raw data to compatible format
+            compatible_forecasts = self._convert_raw_to_compatible_format(raw_forecasts)
+
+            # Use existing summary method
+            if hasattr(formatter.formatter, "generate_llm_summary"):
+                return await formatter.formatter.generate_llm_summary(compatible_forecasts)
+
+            logger.error("Formatter does not support any LLM summaries")
+            return ""
+
+        except Exception as e:
+            logger.exception(f"Weather summary from raw data error: {e!s}")
+            return ""
+
+    def _convert_raw_to_compatible_format(self, raw_forecasts: dict) -> list:
+        """
+        Convert raw weather data to a format compatible with the existing summary method.
+
+        Args:
+            raw_forecasts: Dictionary of city names to their raw weather data
+
+        Returns:
+            List of formatted forecast dictionaries as expected by generate_llm_summary
+
+        """
+        compatible_forecasts = []
+
+        for city_name, raw_data in raw_forecasts.items():
+            # Skip entries with errors
+            if "error" in raw_data:
+                continue
+
+            # Get API type from metadata
+            api_type = raw_data.get("_meta", {}).get("api_type")
+            if not api_type:
+                logger.warning(f"Missing API type in raw data for {city_name}, skipping")
+                continue
+
+            # Extract relevant data based on API type
+            if api_type == "open-meteo":
+                try:
+                    # Extract data similar to what _extract_forecast_data would produce
+                    temp_max = round(raw_data["daily"]["temperature_2m_max"][0])
+                    temp_min = round(raw_data["daily"]["temperature_2m_min"][0])
+
+                    # Get weather code for condition
+                    weather_code = raw_data["daily"]["weather_code"][0]
+
+                    # Create a simplified detailed data object
+                    current = raw_data.get("current", {})
+
+                    detailed_data = {
+                        "current_temp": round(current.get("temperature_2m", temp_max)),
+                        "feels_like": round(current.get("apparent_temperature", temp_max)),
+                        "conditions": f"Weather code: {weather_code}",
+                        "wind_speed": f"{current.get('wind_speed_10m', 0)} km/h",
+                        "humidity": f"{current.get('relative_humidity_2m', 0)}%",
+                        "high": temp_max,
+                        "low": temp_min,
+                        "precipitation": f"{raw_data['daily'].get('precipitation_probability_max', [0])[0]}%",
+                    }
+
+                    # Create compatible forecast entry
+                    compatible_forecast = {
+                        "ᴄɪᴛʏ": f"{city_name}  ",
+                        "ᴅᴇᴛᴀɪʟs": json.dumps(detailed_data)
+                    }
+
+                    compatible_forecasts.append(compatible_forecast)
+
+                except (KeyError, IndexError) as e:
+                    logger.exception(f"Error converting raw OpenMeteo data for {city_name}: {e!s}")
+
+            elif api_type == "weather-gov":
+                try:
+                    # Extract data from Weather.gov format
+                    periods = raw_data.get("properties", {}).get("periods", [])
+                    if periods:
+                        day_period = next((p for p in periods if p.get("isDaytime", True)), periods[0])
+                        night_period = next((p for p in periods if not p.get("isDaytime", True)), None)
+
+                        temp_max = day_period.get("temperature", 0)
+                        temp_min = night_period.get("temperature", 0) if night_period else temp_max - 10
+
+                        detailed_data = {
+                            "current_temp": temp_max,
+                            "conditions": day_period.get("shortForecast", ""),
+                            "wind_speed": day_period.get("windSpeed", ""),
+                            "humidity": f"{day_period.get('relativeHumidity', {}).get('value', 0)}%",
+                            "high": temp_max,
+                            "low": temp_min,
+                            "precipitation": f"{day_period.get('probabilityOfPrecipitation', {}).get('value', 0)}%",
+                        }
+
+                        # Create compatible forecast entry
+                        compatible_forecast = {
+                            "ᴄɪᴛʏ": f"{city_name}  ",
+                            "ᴅᴇᴛᴀɪʟs": json.dumps(detailed_data)
+                        }
+
+                        compatible_forecasts.append(compatible_forecast)
+
+                except (KeyError, IndexError) as e:
+                    logger.exception(f"Error converting raw Weather.gov data for {city_name}: {e!s}")
+
+        return compatible_forecasts
 
     async def format_forecast_table(self, forecasts: list[dict[str, Any]], include_condition: bool = False) -> str:
         """
@@ -229,3 +362,108 @@ class WeatherService:
                 raw_data = {"error": f"City '{city}' not found in configured locations"}
 
         return raw_data
+
+    async def fetch_raw_data_for_summary(self, city: str, locations_data: dict[str, tuple[str, tuple[float, float]]]) -> dict[str, Any]:
+        """
+        Fetch raw weather data from APIs with minimal processing to prepare for summary generation.
+
+        This method retrieves the raw API responses but adds some metadata and normalization
+        to make the data easier to work with for summarization, while preserving the original
+        structure and richness of the API responses.
+
+        Args:
+            city: Name of the city to fetch data for, or "Everywhere" for all cities
+            locations_data: Dictionary mapping city names to (api_type, coords) tuples
+
+        Returns:
+            Dictionary of city names to their minimally processed raw weather data
+
+        """
+        result_data = {}
+
+        # Determine which cities to fetch data for
+        if city == "Everywhere":
+            cities_to_fetch = list(locations_data.keys())
+        else:
+            # Try to match the city name (case-insensitive)
+            matched_city = None
+            for loc in locations_data:
+                if loc.lower() == city.lower():
+                    matched_city = loc
+                    break
+
+            if matched_city:
+                cities_to_fetch = [matched_city]
+            else:
+                # City not found, return error
+                return {city: {"error": f"City '{city}' not found in configured locations"}}
+
+        # Fetch data for each city
+        for city_name in cities_to_fetch:
+            api_type, coords = locations_data[city_name]
+
+            # Get the API handler
+            if api_type not in self.api_handlers:
+                self.api_handlers[api_type] = WeatherAPIFactory.create_weather_api_handler(api_type)
+
+            # Get raw forecast with error handling
+            try:
+                coords_str = ",".join(map(str, coords))
+                handler = self.api_handlers[api_type]
+                raw_forecast = await handler.get_forecast(coords_str)
+
+                # Apply minimal normalization based on API type
+                normalized_data = self._normalize_raw_data_for_summary(raw_forecast, api_type, city_name)
+                result_data[city_name] = normalized_data
+
+            except Exception as e:
+                logger.exception("Error retrieving raw forecast data for %s: %s", city_name, str(e))
+                result_data[city_name] = {"error": str(e)}
+
+        return result_data
+
+    def _normalize_raw_data_for_summary(self, raw_data: dict, api_type: str, city_name: str) -> dict:
+        """
+        Apply minimal normalization to raw data to ensure consistency across providers.
+
+        This preserves the original data structure while adding a few standardized fields
+        to help with summary generation.
+
+        Args:
+            raw_data: The raw API response data
+            api_type: The type of API (e.g., "open-meteo", "weather-gov")
+            city_name: The name of the city
+
+        Returns:
+            Minimally normalized data that preserves the original structure
+
+        """
+        # Start with a shallow copy of the raw data
+        normalized = dict(raw_data)
+
+        # Add metadata fields common to all providers
+        normalized["_meta"] = {
+            "api_type": api_type,
+            "city_name": city_name,
+            "processed_time": datetime.now(UTC).isoformat()
+        }
+
+        # Add units metadata based on API type
+        if api_type == "open-meteo":
+            normalized["temperature_unit"] = "°C"
+            normalized["precipitation_unit"] = "mm"
+            normalized["wind_speed_unit"] = "km/h"
+        elif api_type == "weather-gov":
+            # Extract units from the data if available
+            if "properties" in raw_data and "periods" in raw_data["properties"] and raw_data["properties"]["periods"]:
+                first_period = raw_data["properties"]["periods"][0]
+                normalized["temperature_unit"] = f"°{first_period.get('temperatureUnit', 'F')}"
+                normalized["precipitation_unit"] = "%"
+                normalized["wind_speed_unit"] = first_period.get("windSpeed", "").split()[-1] if "windSpeed" in first_period else "mph"
+            else:
+                # Default units for Weather.gov
+                normalized["temperature_unit"] = "°F"
+                normalized["precipitation_unit"] = "%"
+                normalized["wind_speed_unit"] = "mph"
+
+        return normalized

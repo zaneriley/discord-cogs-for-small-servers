@@ -250,12 +250,12 @@ async def test_fetch_mixed_api_locations_weather(mock_strings, mock_open_meteo_d
     results = await service.fetch_all_locations_weather(locations_data)
     assert isinstance(results, list)
     assert len(results) == 2
-    
+
     # Check each result - some might be error messages if the formatter couldn't handle the data
     for result in results:
         # Accept either dictionary (successful formatting) or string (error message)
         assert isinstance(result, (dict, str))
-        
+
         # If it's a dict, verify it has the required keys
         if isinstance(result, dict):
             assert "ᴄɪᴛʏ" in result
@@ -283,4 +283,107 @@ async def test_fetch_tokyo_weather_success(mock_strings, mock_tokyo_open_meteo_d
     assert "ʟ°ᴄ" in result
     assert "21°" in result["ʟ°ᴄ"]  # Should be rounded from 21.2°
     assert "ᴘʀᴇᴄɪᴘ" in result
-    assert "20%" in result["ᴘʀᴇᴄɪᴘ"]  # Should be percentage instead of mm 
+    assert "20%" in result["ᴘʀᴇᴄɪᴘ"]  # Should be percentage instead of mm
+
+@pytest.mark.asyncio
+async def test_fetch_raw_data_for_summary_everywhere(mock_strings, mock_open_meteo_data, mock_api_handler):
+    """Test fetching raw data for all locations for summary."""
+    locations_data = {
+        "San Francisco": ("open-meteo", (37.7749, -122.4194)),
+        "New York": ("open-meteo", (40.7128, -74.0060))
+    }
+
+    service = WeatherService(strings=mock_strings)
+
+    # Mock the API handler
+    handler = mock_api_handler(mock_open_meteo_data)
+    service.api_handlers = {"open-meteo": handler}
+
+    results = await service.fetch_raw_data_for_summary("Everywhere", locations_data)
+    assert isinstance(results, dict)
+    assert "San Francisco" in results
+    assert "New York" in results
+
+    # Check that raw data is preserved but minimally processed
+    for data in results.values():
+        assert "current" in data
+        assert "daily" in data
+        assert "temperature_unit" in data  # Check for normalized metadata
+        assert "precipitation_unit" in data  # Check for normalized metadata
+
+@pytest.mark.asyncio
+async def test_fetch_raw_data_for_summary_specific_city(mock_strings, mock_open_meteo_data, mock_api_handler):
+    """Test fetching raw data for a specific city for summary."""
+    locations_data = {
+        "San Francisco": ("open-meteo", (37.7749, -122.4194)),
+        "New York": ("open-meteo", (40.7128, -74.0060))
+    }
+
+    service = WeatherService(strings=mock_strings)
+
+    # Mock the API handler
+    handler = mock_api_handler(mock_open_meteo_data)
+    service.api_handlers = {"open-meteo": handler}
+
+    result = await service.fetch_raw_data_for_summary("San Francisco", locations_data)
+    assert isinstance(result, dict)
+    assert "San Francisco" in result
+    assert "New York" not in result
+
+    # Check that raw data for the specified city is preserved
+    city_data = result["San Francisco"]
+    assert "current" in city_data
+    assert "daily" in city_data
+    assert "temperature_unit" in city_data
+    assert "precipitation_unit" in city_data
+
+@pytest.mark.asyncio
+async def test_fetch_raw_data_for_summary_error_handling(mock_strings, mock_api_handler):
+    """Test error handling when fetching raw data for summary."""
+    locations_data = {
+        "San Francisco": ("open-meteo", (37.7749, -122.4194))
+    }
+
+    service = WeatherService(strings=mock_strings)
+
+    # Create an API handler that raises an exception
+    handler = AsyncMock()
+    handler.get_forecast.side_effect = Exception("API Error")
+    service.api_handlers = {"open-meteo": handler}
+
+    result = await service.fetch_raw_data_for_summary("San Francisco", locations_data)
+    assert isinstance(result, dict)
+    assert "San Francisco" in result
+    assert "error" in result["San Francisco"]
+    assert "API Error" in result["San Francisco"]["error"]
+
+@pytest.mark.asyncio
+async def test_fetch_raw_data_for_summary_mixed_api_types(mock_strings, mock_open_meteo_data, mock_weather_gov_data, mock_api_handler):
+    """Test fetching raw data from different API types for summary."""
+    locations_data = {
+        "San Francisco": ("open-meteo", (37.7749, -122.4194)),
+        "Washington DC": ("weather-gov", (38.9072, -77.0370))
+    }
+
+    service = WeatherService(strings=mock_strings)
+
+    # Mock the API handlers
+    open_meteo_handler = mock_api_handler(mock_open_meteo_data)
+    weather_gov_handler = mock_api_handler(mock_weather_gov_data)
+    service.api_handlers = {
+        "open-meteo": open_meteo_handler,
+        "weather-gov": weather_gov_handler
+    }
+
+    results = await service.fetch_raw_data_for_summary("Everywhere", locations_data)
+    assert isinstance(results, dict)
+    assert "San Francisco" in results
+    assert "Washington DC" in results
+
+    # Verify that we have the raw data structure for each API type
+    assert "current" in results["San Francisco"]  # OpenMeteo structure
+    assert "properties" in results["Washington DC"]  # Weather.gov structure
+
+    # Verify the minimal normalization was applied
+    assert "temperature_unit" in results["San Francisco"]
+    assert "temperature_unit" in results["Washington DC"]

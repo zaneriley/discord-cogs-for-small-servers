@@ -47,6 +47,13 @@ class WeatherChannel(commands.Cog):
         self.weather_service = WeatherService(self.strings)  # Pass strings to WeatherService
         self.config_manager = ConfigManager(self.guild_id, self)
         self.api_handlers = {}  # Initialize the api_handlers dictionary - also likely not needed here, service handles it.
+
+        # Added tracking variables for scheduler status
+        self.next_forecast_time = None
+        self.scheduler_active = False
+        self.last_forecast_time = None
+        self.last_forecast_success = None
+
         self.on_forecast_task_complete.start()
         logger.info("WeatherChannel cog initialized. Registered commands: %s",
                    [c.name for c in self.weather.commands])
@@ -73,6 +80,10 @@ class WeatherChannel(commands.Cog):
         if next_eastern_6am < now_utc:
             next_eastern_6am += timedelta(days=1)
 
+        # Save the next forecast time
+        self.next_forecast_time = next_eastern_6am
+        self.scheduler_active = True
+
         # Format the next run time for readability and log the information
         next_run_time_eastern = next_eastern_6am.astimezone(eastern).strftime("%Y-%m-%d %I:%M %p %Z")
         logger.info(
@@ -84,7 +95,14 @@ class WeatherChannel(commands.Cog):
         await asyncio.sleep(delay)
 
         # Perform the forecast update task
-        await self.forecast_task()
+        try:
+            await self.forecast_task()
+            self.last_forecast_time = datetime.now(pytz.utc)
+            self.last_forecast_success = True
+        except Exception as e:
+            logger.exception("Error during forecast task: %s", str(e))
+            self.last_forecast_time = datetime.now(pytz.utc)
+            self.last_forecast_success = False
 
         # Immediately reschedule for precision
         self.on_forecast_task_complete.restart()
@@ -106,6 +124,7 @@ class WeatherChannel(commands.Cog):
     Basic commands:
     • /weather current - View current weather for all or a specific location
     • /weather summary - Generate an AI summary of weather conditions
+    • /weather schedule - Check when the next weather forecast is scheduled
 
     Admin commands:
     • /weather set channel - Configure channel for daily weather updates
@@ -150,6 +169,7 @@ class WeatherChannel(commands.Cog):
             )
             embed.add_field(name="!weather current [city]", value="Get current weather information", inline=False)
             embed.add_field(name="!weather summary [city]", value="Generate an AI summary of weather conditions", inline=False)
+            embed.add_field(name="!weather schedule", value="Check when the next weather forecast is scheduled", inline=False)
             embed.add_field(name="!weather raw [city]", value="Get raw weather data for debugging", inline=False)
             embed.add_field(name="!weather set channel [#channel]", value="Set the channel for daily weather updates (Admin only)", inline=False)
             embed.set_footer(text="Type !help weather for more detailed information")
@@ -193,7 +213,7 @@ class WeatherChannel(commands.Cog):
         if city == "Everywhere":
             # Use the service to fetch weather for all locations
             forecasts = await self.weather_service.fetch_all_locations_weather(default_locations)
-            
+
             if not forecasts:
                 await ctx.send(self.strings["errors"]["service"]["no_weather_data"])
                 return
@@ -218,7 +238,7 @@ class WeatherChannel(commands.Cog):
 
         # Send the formatted table to Discord
         logger.debug(f"Final weather table: {table_string}")
-        await ctx.send(f"`{table_string}`")
+        await ctx.send(f"```{table_string}```")
 
     @weather_current_slash_command.autocomplete("city")
     async def weather_current_autocomplete(self, _: discord.Interaction, current: str):
@@ -382,45 +402,90 @@ class WeatherChannel(commands.Cog):
         # Retrieve default locations
         default_locations = await self.config_manager.get_default_locations(self.guild_id)
 
-        # Fetch weather data based on requested city
-        if city == "Everywhere":
-            forecasts = await self.weather_service.fetch_all_locations_weather(default_locations)
-        elif city.lower() in (loc.lower() for loc in default_locations):
-            forecast = await self.weather_service.fetch_city_weather(city, default_locations)
-            if not forecast or "error" in forecast:
-                error_message = forecast.get("error", self.strings["errors"]["service"]["weather_fetch_error"].format(city=city)) if forecast else self.strings["errors"]["service"]["weather_fetch_error"].format(city=city)
-                await ctx.send(error_message)
-                return
-            forecasts = [forecast]
-        else:
-            await ctx.send(self.strings["errors"]["location_not_recognized"])
+        # Fetch raw weather data for summary using the new method
+        raw_forecasts = await self.weather_service.fetch_raw_data_for_summary(city, default_locations)
+
+        # Check if we have valid data
+        if not raw_forecasts:
+            await ctx.send(self.strings["errors"]["service"]["no_weather_data"])
             return
 
-        # Make sure we have valid data to summarize
-        if not forecasts:
+        # Check for city-specific errors
+        if city != "Everywhere" and city in raw_forecasts and "error" in raw_forecasts[city]:
+            await ctx.send(raw_forecasts[city]["error"])
+            return
+
+        # Check for any data to process
+        if all("error" in data for city_name, data in raw_forecasts.items()):
             await ctx.send(self.strings["errors"]["service"]["no_weather_data"])
             return
 
         try:
-            # Generate summary using the service
-            summary = await self.weather_service.get_weather_summary(forecasts)
+            # Generate summary using the new raw data method
+            summary = await self.weather_service.get_weather_summary_from_raw(raw_forecasts)
             if not summary:
                 await ctx.send("Unable to generate weather summary. Please try again later.")
                 return
 
-            # Format consolidated data for context (limited to 500 chars to avoid huge messages)
-            consolidated_data = "\n".join(
-                f"{f['ᴄɪᴛʏ'].strip()}: {json.loads(f.get('ᴅᴇᴛᴀɪʟs', '{}'))}"  # noqa: RUF001
-                for f in forecasts
-            )[:500] + "..."
+            # Prepare a simplified preview of the raw data (limited to avoid huge messages)
+            preview_data = {}
+            for city_name, data in raw_forecasts.items():
+                if "error" not in data:
+                    if "current" in data:
+                        # For OpenMeteo
+                        preview_data[city_name] = {
+                            "temp": f"{data.get('current', {}).get('temperature_2m', 'N/A')}{data.get('temperature_unit', '°C')}",
+                            "humidity": f"{data.get('current', {}).get('relative_humidity_2m', 'N/A')}%",
+                            "conditions": self._get_condition_text(data)
+                        }
+                    elif "properties" in data and "periods" in data["properties"]:
+                        # For Weather.gov
+                        period = data["properties"]["periods"][0] if data["properties"]["periods"] else {}
+                        preview_data[city_name] = {
+                            "temp": f"{period.get('temperature', 'N/A')}{data.get('temperature_unit', '°F')}",
+                            "humidity": f"{period.get('relativeHumidity', {}).get('value', 'N/A')}%",
+                            "conditions": period.get("shortForecast", "Unknown")
+                        }
+
+            # Format preview data as string, limited to 500 chars
+            consolidated_data = json.dumps(preview_data, indent=2)[:500] + "..."
 
             # Send back the summary
             await ctx.send(
-                f"**Weather Summary:**\n{summary}\n\n*Raw data used:*\n```\n{consolidated_data}\n```"
+                f"**Weather Summary:**\n{summary}\n\n*Data preview:*\n```\n{consolidated_data}\n```"
             )
-        except Exception:
-            logger.exception("Error generating weather summary")
-            await ctx.send("An error occurred while generating the weather summary. Please try again later.")
+        except Exception as e:
+            logger.exception("Error generating weather summary: %s", str(e))
+            await ctx.send(f"An error occurred while generating the weather summary: {e!s}")
+
+    def _get_condition_text(self, data):
+        """Extract weather condition text from OpenMeteo data."""
+        if "daily" in data and "weather_code" in data["daily"] and data["daily"]["weather_code"]:
+            weather_code = data["daily"]["weather_code"][0]
+            # Map known weather codes to text descriptions
+            weather_codes = {
+                0: "Clear sky",
+                1: "Mainly clear",
+                2: "Partly cloudy",
+                3: "Overcast",
+                45: "Fog",
+                48: "Depositing rime fog",
+                51: "Light drizzle",
+                53: "Moderate drizzle",
+                55: "Dense drizzle",
+                61: "Slight rain",
+                63: "Moderate rain",
+                65: "Heavy rain",
+                71: "Slight snow fall",
+                73: "Moderate snow fall",
+                75: "Heavy snow fall",
+                80: "Slight rain showers",
+                81: "Moderate rain showers",
+                82: "Violent rain showers",
+                95: "Thunderstorm"
+            }
+            return weather_codes.get(weather_code, f"Code {weather_code}")
+        return "Unknown"
 
     @weather_summary_slash_command.autocomplete("city")
     async def weather_summary_autocomplete(self, _: discord.Interaction, current: str):
@@ -434,14 +499,16 @@ class WeatherChannel(commands.Cog):
         default_locations = await self.config_manager.get_default_locations(self.guild_id)
         if not default_locations:
             logger.warning("No default locations set for this guild.")
-            return
+            msg = "No default locations configured"
+            raise ValueError(msg)
 
         channel_id = await self.config_manager.get_weather_channel(self.guild_id)
         channel = self.bot.get_channel(channel_id)
 
         if not channel:
             logger.warning("Weather channel not found.")
-            return
+            msg = "Weather channel not found or not configured"
+            raise ValueError(msg)
 
         # Use the service to fetch and format weather data
         forecasts = await self.weather_service.fetch_all_locations_weather(default_locations)
@@ -453,13 +520,18 @@ class WeatherChannel(commands.Cog):
         # Use the service to format the table
         table_string = await self.weather_service.format_forecast_table(forecasts)
 
-        # Generate AI summary
-        summary = await self.weather_service.get_weather_summary(forecasts)
+        # Fetch raw data for summary
+        raw_forecasts = await self.weather_service.fetch_raw_data_for_summary("Everywhere", default_locations)
+
+        # Generate AI summary from raw data
+        summary = ""
+        if raw_forecasts and not all("error" in data for city_name, data in raw_forecasts.items()):
+            summary = await self.weather_service.get_weather_summary_from_raw(raw_forecasts)
 
         # Build final message
         message_content = (
             f"{self.strings['weather_report_title']}\n"
-            f"`{table_string}`"
+            f"```{table_string}```"
             f"{summary if summary else ''}"
         )
 
@@ -561,3 +633,106 @@ class WeatherChannel(commands.Cog):
             await interaction.followup.send(f"An error occurred: {error}")
         else:
             await interaction.response.send_message(f"An error occurred: {error}", ephemeral=True)
+
+    @weather.command(
+        name="schedule",
+        description="Check when the next weather forecast is scheduled"
+    )
+    async def weather_schedule_slash_command(self, interaction: discord.Interaction):
+        """
+        Check when the next weather forecast is scheduled (slash command version).
+
+        Parameters
+        ----------
+        interaction
+            The Discord interaction
+
+        """
+        logger.info("Command weather schedule (slash) invoked by %s", interaction.user)
+        ctx = await commands.Context.from_interaction(interaction)
+        await self._weather_schedule_logic(ctx)
+
+    @weather_group.command(
+        name="schedule",
+        aliases=["sched", "when"],
+        description="Check when the next weather forecast is scheduled"
+    )
+    async def weather_schedule_text_command(self, ctx):
+        """
+        Check when the next weather forecast is scheduled (text command version).
+
+        Parameters
+        ----------
+        ctx
+            The command context
+
+        """
+        logger.info("Command weather schedule (text) invoked by %s", ctx.author)
+        await self._weather_schedule_logic(ctx)
+
+    async def _weather_schedule_logic(self, ctx):
+        """
+        Shared logic for weather schedule commands.
+
+        Parameters
+        ----------
+        ctx
+            The command context
+
+        """
+        embed = discord.Embed(
+            title="Weather Forecast Schedule",
+            color=discord.Color.blue()
+        )
+
+        # Check if scheduler is active
+        if not self.scheduler_active or not self.next_forecast_time:
+            embed.description = "⚠️ The weather scheduler is not active."
+            await ctx.send(embed=embed)
+            return
+
+        # Get channel information
+        channel_id = await self.config_manager.get_weather_channel(self.guild_id)
+        channel = self.bot.get_channel(channel_id)
+        channel_mention = channel.mention if channel else "Not configured"
+
+        # Calculate time until next forecast
+        now_utc = datetime.now(pytz.utc)
+        time_until = self.next_forecast_time - now_utc
+        hours, remainder = divmod(time_until.seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+
+        # Format next forecast time in user-friendly way
+        eastern = pytz.timezone("America/New_York")
+        next_time_formatted = self.next_forecast_time.astimezone(eastern).strftime("%A, %B %d at %I:%M %p %Z")
+
+        # Add information to embed
+        embed.add_field(
+            name="Next Forecast",
+            value=f"📅 {next_time_formatted}",
+            inline=False
+        )
+
+        embed.add_field(
+            name="Time Until Next Forecast",
+            value=f"⏱️ {hours} hours, {minutes} minutes",
+            inline=False
+        )
+
+        embed.add_field(
+            name="Forecast Channel",
+            value=f"📣 {channel_mention}",
+            inline=False
+        )
+
+        # Add last run information if available
+        if self.last_forecast_time:
+            last_run_time = self.last_forecast_time.astimezone(eastern).strftime("%A, %B %d at %I:%M %p %Z")
+            status = "✅ Successful" if self.last_forecast_success else "❌ Failed"
+            embed.add_field(
+                name="Last Forecast Run",
+                value=f"🕒 {last_run_time}\nStatus: {status}",
+                inline=False
+            )
+
+        await ctx.send(embed=embed)

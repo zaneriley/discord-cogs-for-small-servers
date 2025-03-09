@@ -30,6 +30,10 @@ cogs/
 - Test function names must be prefixed with `test_` (e.g., `test_fetch_weather_data()`)
 - Test class names, if used, must be prefixed with `Test` (e.g., `TestWeatherService`)
 
+### If asked to write tests
+
+You have to actually run the tests to verify whether they are passing or not. If you write the tests without testing them, you've failed.
+
 ## Running Tests
 
 Always use Docker to run tests to ensure a consistent environment:
@@ -193,6 +197,6 @@ Never make real API calls in tests. Always mock external services.
 
 ## Additional Resources
 
-- [pytest Documentation](https://docs.pytest.org/)
-- [pytest-asyncio Documentation](https://github.com/pytest-dev/pytest-asyncio)
-- [unittest.mock Documentation](https://docs.python.org/3/library/unittest.mock.html)
+- [pytest Documentation](mdc:https:/docs.pytest.org)
+- [pytest-asyncio Documentation](mdc:https:/github.com/pytest-dev/pytest-asyncio)
+- [unittest.mock Documentation](mdc:https:/docs.python.org/3/library/unittest.mock.html)

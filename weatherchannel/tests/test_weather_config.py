@@ -1,12 +1,9 @@
-import json
-import os
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from cogs.weatherchannel.config import ConfigManager
 from discord import app_commands
-from redbot.core import Config
 
 # Fixtures now imported from conftest.py
 
@@ -91,4 +88,4 @@ async def test_get_city_coordinates(mock_env, mock_cities_json, mock_cog, mock_c
         config = ConfigManager(guild_id=123456789, cog_instance=mock_cog)
         city_data = config.cities_data.get("cities", {}).get("San Francisco")
         assert city_data is not None
-        assert city_data["coordinates"] == [37.7749, -122.4194] 
+        assert city_data["coordinates"] == [37.7749, -122.4194]

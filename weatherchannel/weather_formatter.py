@@ -4,7 +4,6 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any, ClassVar
-import re
 
 from utilities.llm.llm_utils import create_llm_chain
 from utilities.text_formatting_utils import format_row, get_max_widths
@@ -156,16 +155,16 @@ class OpenMeteoFormatter(WeatherFormatterInterface):
                     # Remove trailing spaces from values to avoid inconsistent spacing
                     processed_forecast[key] = forecast[key].rstrip()
             processed_forecasts.append(processed_forecast)
-        
+
         # Calculate column widths based on the processed forecasts
         widths = get_max_widths(processed_forecasts, keys)
-        
+
         # Special handling for temperature columns
         temp_keys = [k for k in keys if k in ["ʜ°ᴄ", "ʟ°ᴄ"]]
         if temp_keys:
             # 1. Ensure all temperature columns have the same width
             max_temp_width = max(widths[k] for k in temp_keys)
-            
+
             # 2. Check if any temperature values are negative
             has_negative_temp = False
             for forecast in processed_forecasts:
@@ -175,46 +174,46 @@ class OpenMeteoFormatter(WeatherFormatterInterface):
                         break
                 if has_negative_temp:
                     break
-            
+
             # 3. Add extra width to ensure consistent spacing between columns
             for key in temp_keys:
                 # Make all temperature columns the same width
                 widths[key] = max_temp_width
-                
+
                 # If there are negative values, add extra space to ensure consistent alignment
                 if has_negative_temp:
                     widths[key] += 1
-        
+
         # Ensure the precipitation column has enough width for the longest value
         # Add a consistent width of 2 spaces to create an even column
         if "ᴘʀᴇᴄɪᴘ" in widths:
             widths["ᴘʀᴇᴄɪᴘ"] += 2
-        
+
         # First create the header row
         header = format_row({k: k for k in keys}, keys, widths, alignments)
-        
+
         # Format each data row
         rows = []
         for forecast in processed_forecasts:
             row = format_row(forecast, keys, widths, alignments)
             rows.append(row)
-        
+
         # Ensure all rows have the same width by removing trailing spaces
         # and then padding to the maximum width
         header = header.rstrip()
         rows = [row.rstrip() for row in rows]
-        
+
         # Calculate the maximum row width to ensure consistency
-        max_width = max(len(row) for row in [header] + rows)
-        
+        max_width = max(len(row) for row in [header, *rows])
+
         # Create final padded rows with exact same width
         uniform_rows = []
         header = header + " " * (max_width - len(header))
-        
+
         for row in rows:
             padded_row = row + " " * (max_width - len(row))
             uniform_rows.append(padded_row)
-        
+
         # Create the final table
         return header + "\n" + "\n".join(uniform_rows)
 
@@ -222,15 +221,15 @@ class OpenMeteoFormatter(WeatherFormatterInterface):
         """Extract relevant data from the OpenMeteo API response and format it for display"""
         # Clear debug log of incoming data structure
         logger.debug(f"OpenMeteoFormatter: Processing data for {city_name} with keys: {list(weather_data.keys())}")
-        if 'daily' in weather_data:
+        if "daily" in weather_data:
             logger.debug(f"OpenMeteoFormatter: Daily data keys: {list(weather_data['daily'].keys())}")
-        
+
         try:
             # Log the raw temperature values
             temp_max_raw = weather_data["daily"]["temperature_2m_max"][0]
             temp_min_raw = weather_data["daily"]["temperature_2m_min"][0]
             logger.debug(f"OpenMeteoFormatter: {city_name} raw temps - high: {temp_max_raw}, low: {temp_min_raw}")
-            
+
             # Get temperature data and round to integers
             temp_max = round(temp_max_raw)
             temp_min = round(temp_min_raw)
@@ -246,7 +245,7 @@ class OpenMeteoFormatter(WeatherFormatterInterface):
             has_precip_prob = "precipitation_probability_max" in weather_data["daily"]
             has_precip_sum = "precipitation_sum" in weather_data["daily"]
             logger.debug(f"OpenMeteoFormatter: {city_name} precip data - has_prob: {has_precip_prob}, has_sum: {has_precip_sum}")
-            
+
             if has_precip_prob:
                 precip_prob = weather_data["daily"]["precipitation_probability_max"][0]
                 logger.debug(f"OpenMeteoFormatter: {city_name} precip_prob value: {precip_prob}")
@@ -259,7 +258,7 @@ class OpenMeteoFormatter(WeatherFormatterInterface):
                 precip = f"{precip_sum}mm"
             else:
                 precip = "0%"
-            
+
             logger.debug(f"OpenMeteoFormatter: {city_name} final precip value: {precip}")
 
             # Extract current conditions for detailed data
@@ -287,7 +286,7 @@ class OpenMeteoFormatter(WeatherFormatterInterface):
                 "ᴘʀᴇᴄɪᴘ": f"{precip}",
                 "ᴅᴇᴛᴀɪʟs": json.dumps(detailed_data)  # Store for summary generation
             }
-            
+
             logger.debug(f"OpenMeteoFormatter: {city_name} final formatted result: {result}")
             return result
         except KeyError as e:
@@ -484,16 +483,16 @@ class WeatherGovFormatter(WeatherFormatterInterface):
                     # Remove trailing spaces from values to avoid inconsistent spacing
                     processed_forecast[key] = forecast[key].rstrip()
             processed_forecasts.append(processed_forecast)
-        
+
         # Calculate column widths based on the processed forecasts
         widths = get_max_widths(processed_forecasts, keys)
-        
+
         # Special handling for temperature columns
         temp_keys = [k for k in keys if k in ["ʜ°ᴄ", "ʟ°ᴄ"]]
         if temp_keys:
             # 1. Ensure all temperature columns have the same width
             max_temp_width = max(widths[k] for k in temp_keys)
-            
+
             # 2. Check if any temperature values are negative
             has_negative_temp = False
             for forecast in processed_forecasts:
@@ -503,46 +502,46 @@ class WeatherGovFormatter(WeatherFormatterInterface):
                         break
                 if has_negative_temp:
                     break
-            
+
             # 3. Add extra width to ensure consistent spacing between columns
             for key in temp_keys:
                 # Make all temperature columns the same width
                 widths[key] = max_temp_width
-                
+
                 # If there are negative values, add extra space to ensure consistent alignment
                 if has_negative_temp:
                     widths[key] += 1
-        
+
         # Ensure the precipitation column has enough width for the longest value
         # Add a consistent width of 2 spaces to create an even column
         if "ᴘʀᴇᴄɪᴘ" in widths:
             widths["ᴘʀᴇᴄɪᴘ"] += 2
-        
+
         # First create the header row
         header = format_row({k: k for k in keys}, keys, widths, alignments)
-        
+
         # Format each data row
         rows = []
         for forecast in processed_forecasts:
             row = format_row(forecast, keys, widths, alignments)
             rows.append(row)
-        
+
         # Ensure all rows have the same width by removing trailing spaces
         # and then padding to the maximum width
         header = header.rstrip()
         rows = [row.rstrip() for row in rows]
-        
+
         # Calculate the maximum row width to ensure consistency
-        max_width = max(len(row) for row in [header] + rows)
-        
+        max_width = max(len(row) for row in [header, *rows])
+
         # Create final padded rows with exact same width
         uniform_rows = []
         header = header + " " * (max_width - len(header))
-        
+
         for row in rows:
             padded_row = row + " " * (max_width - len(row))
             uniform_rows.append(padded_row)
-        
+
         # Create the final table
         return header + "\n" + "\n".join(uniform_rows)
 
@@ -563,5 +562,5 @@ class WeatherFormatter:
         for forecast in forecasts:
             if isinstance(forecast, dict) and "ᴄɪᴛʏ" in forecast and "Tokyo" in forecast["ᴄɪᴛʏ"]:
                 logger.info(f"Tokyo in format_forecast_table: {forecast}")
-                
+
         return self.formatter.format_forecast_table(forecasts, include_condition)
