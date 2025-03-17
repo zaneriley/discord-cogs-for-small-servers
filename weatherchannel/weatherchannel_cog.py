@@ -520,20 +520,8 @@ class WeatherChannel(commands.Cog):
         # Use the service to format the table
         table_string = await self.weather_service.format_forecast_table(forecasts)
 
-        # Fetch raw data for summary
-        raw_forecasts = await self.weather_service.fetch_raw_data_for_summary("Everywhere", default_locations)
-
-        # Generate AI summary from raw data
-        summary = ""
-        if raw_forecasts and not all("error" in data for city_name, data in raw_forecasts.items()):
-            summary = await self.weather_service.get_weather_summary_from_raw(raw_forecasts)
-
-        # Build final message
-        message_content = (
-            f"{self.strings['weather_report_title']}\n"
-            f"```{table_string}```"
-            f"{summary if summary else ''}"
-        )
+        # Build final message - simplified to only include the table
+        message_content = f"```{table_string}```"
 
         await channel.send(message_content, allowed_mentions=discord.AllowedMentions.none())
 

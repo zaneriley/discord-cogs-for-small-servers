@@ -1,6 +1,5 @@
 """Tests for the token utility functions."""
 
-import json
 import os
 import sys
 from unittest.mock import AsyncMock, patch
@@ -13,7 +12,6 @@ from utilities.llm.token_utils import (
     count_tokens,
     count_tokens_batch,
     estimate_tokens,
-    token_estimation
 )
 
 # Add path to find the weatherchannel tests
@@ -22,7 +20,6 @@ if weather_tests_path not in sys.path:
     sys.path.append(weather_tests_path)
 
 # Import the fixture from weatherchannel tests conftest
-from conftest import weather_test_data
 
 # Convert JSON to plain text format
 def convert_to_plain_text(weather_data):

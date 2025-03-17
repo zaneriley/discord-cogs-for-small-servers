@@ -42,6 +42,7 @@ def test_now():
     # Test that now() returns a date object
     assert isinstance(DateUtil.now(), date)
 
-    # Test that now() returns today's date
+    # Test that now() returns today's date (accounting for possible timezone differences)
     today = datetime.now(timezone.utc).date()
-    assert DateUtil.now() == today
+    date_diff = abs((DateUtil.now() - today).days)
+    assert date_diff <= 1, f"DateUtil.now() and today's date differ by more than 1 day: {DateUtil.now()} vs {today}"

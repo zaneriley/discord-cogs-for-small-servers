@@ -173,7 +173,13 @@ async def send_text_announcement(
     # Send the message with rate limit protection
     for attempt in range(MAX_RETRIES):
         try:
-            success = await send_discord_message(bot, channel_id, content=full_content, **kwargs)
+            # Pass message_content parameter but don't pass embed since this is a text announcement
+            success = await send_discord_message(
+                bot, 
+                channel_id, 
+                message_content=full_content,
+                role_id=mention_id if mention_type == "role" else None
+            )
             if success:
                 return True, None
             return False, "Failed to send message"  # noqa: TRY300
@@ -208,8 +214,7 @@ async def create_embed_announcement(embed_config: EmbedParams) -> discord.Embed:
             - description: The main text content of the embed
             - color: Optional, the color of the embed (default: Discord Blurple)
             - timestamp: Optional, whether to include a timestamp (default: True)
-            - footer_text: Optional, text to display in the footer
-            - footer_icon_url: Optional, URL of the footer icon
+            - footer: Optional, dict with 'text' and optional 'icon_url' keys
             - thumbnail_url: Optional, URL of the thumbnail image
             - image_url: Optional, URL of the main image
             - author_name: Optional, name to display in the author field
@@ -221,50 +226,75 @@ async def create_embed_announcement(embed_config: EmbedParams) -> discord.Embed:
         A Discord Embed object ready to be sent
 
     """
+    logger.debug(f"Creating embed with config keys: {list(embed_config.keys())}")
+    
+    # Extract and log basic embed parameters
+    title = embed_config.get("title", "")
+    description = embed_config.get("description", "")
+    color = embed_config.get("color", DEFAULT_COLOR)
+    
+    logger.debug(f"Basic embed parameters:")
+    logger.debug(f"- Title: {title}")
+    logger.debug(f"- Description: {description}")
+    logger.debug(f"- Color: {color}")
+
     embed = discord.Embed(
-        title=embed_config.get("title", ""),
-        description=embed_config.get("description", ""),
-        color=embed_config.get("color", DEFAULT_COLOR)
+        title=title,
+        description=description,
+        color=color
     )
 
     # Add timestamp if requested
     if embed_config.get("timestamp", True):
         embed.timestamp = datetime.now(timezone.utc)
+        logger.debug("Added timestamp to embed")
 
     # Add footer if provided
-    footer_text = embed_config.get("footer_text")
-    if footer_text:
-        embed.set_footer(text=footer_text, icon_url=embed_config.get("footer_icon_url"))
+    footer = embed_config.get("footer", {})
+    if isinstance(footer, dict) and "text" in footer:
+        footer_text = footer["text"]
+        footer_icon = footer.get("icon_url")
+        logger.debug(f"Setting footer - Text: {footer_text}, Icon URL: {footer_icon}")
+        embed.set_footer(text=footer_text, icon_url=footer_icon)
+    elif isinstance(footer, str):
+        # Handle legacy string footer
+        logger.debug(f"Setting legacy string footer: {footer}")
+        embed.set_footer(text=footer)
+    else:
+        logger.debug("No valid footer configuration found")
 
     # Add thumbnail if provided
     thumbnail_url = embed_config.get("thumbnail_url")
     if thumbnail_url:
+        logger.debug(f"Setting thumbnail URL: {thumbnail_url}")
         embed.set_thumbnail(url=thumbnail_url)
 
     # Add main image if provided
     image_url = embed_config.get("image_url")
     if image_url:
+        logger.debug(f"Setting main image URL: {image_url}")
         embed.set_image(url=image_url)
 
     # Add author if provided
     author_name = embed_config.get("author_name")
     if author_name:
-        embed.set_author(
-            name=author_name,
-            url=embed_config.get("author_url"),
-            icon_url=embed_config.get("author_icon_url")
-        )
+        author_icon = embed_config.get("author_icon_url")
+        author_url = embed_config.get("author_url")
+        logger.debug(f"Setting author - Name: {author_name}, Icon URL: {author_icon}, URL: {author_url}")
+        embed.set_author(name=author_name, icon_url=author_icon, url=author_url)
 
     # Add fields if provided
-    fields = embed_config.get("fields")
+    fields = embed_config.get("fields", [])
     if fields:
+        logger.debug(f"Adding {len(fields)} fields to embed")
         for field in fields:
             embed.add_field(
-                name=field.get("name", ""),
-                value=field.get("value", ""),
-                inline=field.get("inline", False)
+                name=field["name"],
+                value=field["value"],
+                inline=field.get("inline", True)
             )
 
+    logger.debug("Embed creation complete")
     return embed
 
 # Type alias for announcement configuration
@@ -324,14 +354,14 @@ async def send_embed_announcement(
         # Send the message with the embed, with rate limit protection
         for attempt in range(MAX_RETRIES):
             try:
+                # Pass both the message content and the embed
                 success = await send_discord_message(
-                    bot,
-                    channel_id,
-                    content=full_content if full_content else None,
-                    embed=embed,
-                    **kwargs
+                    bot, 
+                    channel_id, 
+                    message_content=full_content if full_content else "",
+                    role_id=config.get("mention_id") if config.get("mention_type") == "role" else None,
+                    embed=embed  # Pass the embed we created
                 )
-
                 if success:
                     return True, None
                 return False, "Failed to send message"  # noqa: TRY300

@@ -58,7 +58,10 @@ class HolidayService:
 
         """
         try:
-            return await self.repository.get_holidays(guild)
+            logger.info(f"Getting holidays for guild {guild.id} - {guild.name} using repository {self.repository.__class__.__name__}")
+            holidays = await self.repository.get_holidays(guild)
+            logger.info(f"Received holidays from repository: {holidays}")
+            return holidays
         except Exception:
             logger.exception(f"Failed to retrieve holidays for guild {guild.name}")
             return {}
@@ -130,7 +133,7 @@ class HolidayService:
         if not holidays:
             return None, None, {}
 
-        current_date = DateUtil.now().date()
+        current_date = DateUtil.now()
 
         # Use the calculator function instead of reimplementing the logic
         upcoming_holiday, days_until = calc_upcoming_holiday(holidays, current_date)
