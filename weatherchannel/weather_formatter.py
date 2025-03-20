@@ -1,8 +1,10 @@
+"""Module for formatting weather data into human-readable formats."""
+
 import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, ClassVar
 
 from utilities.llm.llm_utils import create_llm_chain
@@ -223,81 +225,86 @@ class OpenMeteoFormatter(WeatherFormatterInterface):
         logger.debug(f"OpenMeteoFormatter: Processing data for {city_name} with keys: {list(weather_data.keys())}")
         if "daily" in weather_data:
             logger.debug(f"OpenMeteoFormatter: Daily data keys: {list(weather_data['daily'].keys())}")
+            logger.debug(f"OpenMeteoFormatter: Number of forecast days: {len(weather_data['daily']['time'])}")
 
         try:
-            # Log the raw temperature values
-            temp_max_raw = weather_data["daily"]["temperature_2m_max"][0]
-            temp_min_raw = weather_data["daily"]["temperature_2m_min"][0]
-            logger.debug(f"OpenMeteoFormatter: {city_name} raw temps - high: {temp_max_raw}, low: {temp_min_raw}")
-
-            # Get temperature data and round to integers
-            temp_max = round(temp_max_raw)
-            temp_min = round(temp_min_raw)
-            logger.debug(f"OpenMeteoFormatter: {city_name} rounded temps - high: {temp_max}, low: {temp_min}")
-
-            # Get weather code for condition
-            weather_code = weather_data["daily"]["weather_code"][0]
-            weather_info = self.weather_code_map.get(weather_code, {"condition": "Unknown", "icon": "❓"})
-            condition = weather_info["condition"]
-            icon = weather_info["icon"]
-
-            # Log precipitation data availability
-            has_precip_prob = "precipitation_probability_max" in weather_data["daily"]
-            has_precip_sum = "precipitation_sum" in weather_data["daily"]
-            logger.debug(f"OpenMeteoFormatter: {city_name} precip data - has_prob: {has_precip_prob}, has_sum: {has_precip_sum}")
-
-            if has_precip_prob:
-                precip_prob = weather_data["daily"]["precipitation_probability_max"][0]
-                logger.debug(f"OpenMeteoFormatter: {city_name} precip_prob value: {precip_prob}")
-                precip = f"{precip_prob}%"
-            elif has_precip_sum:
-                # If we only have sum but no probability, we should convert it
-                precip_sum = weather_data["daily"]["precipitation_sum"][0]
-                logger.debug(f"OpenMeteoFormatter: {city_name} only has precip_sum: {precip_sum}mm")
-                # TODO: Consider handling this case better
-                precip = f"{precip_sum}mm"
-            else:
-                precip = "0%"
-
-            logger.debug(f"OpenMeteoFormatter: {city_name} final precip value: {precip}")
-
-            # Extract current conditions for detailed data
-            current = weather_data.get("current", {})
-
-            # Create a detailed data object for potential AI summarization
-            detailed_data = {
-                "current_temp": round(current.get("temperature_2m", temp_max)),
-                "feels_like": round(current.get("apparent_temperature", temp_max)),
-                "conditions": condition,
-                "wind_speed": f"{current.get('wind_speed_10m', 0)} km/h",
-                "humidity": f"{current.get('relative_humidity_2m', 0)}%",
-                "high": temp_max,
-                "low": temp_min,
-                "precipitation": precip,
-                "icon": icon
-            }
-
-            # Prepare formatted result
+            # Initialize result structure with current weather data
             result = {
-                "ᴄɪᴛʏ": f"{city_name}  ",
-                "ᴄᴏɴᴅ": f"{icon} {condition}  ",
-                "ʜ°ᴄ": f"{temp_max}°  ",
-                "ʟ°ᴄ": f"{temp_min}°  ",
-                "ᴘʀᴇᴄɪᴘ": f"{precip}",
-                "ᴅᴇᴛᴀɪʟs": json.dumps(detailed_data)  # Store for summary generation
+                "city": city_name
             }
 
-            logger.debug(f"OpenMeteoFormatter: {city_name} final formatted result: {result}")
+            # Add current weather conditions
+            if "current" in weather_data:
+                current = {}
+                for key in weather_data["current"]:
+                    current[key] = weather_data["current"][key]
+
+                # Get weather condition text for current weather
+                if "weather_code" in current:
+                    weather_code = current["weather_code"]
+                    weather_info = self.weather_code_map.get(weather_code, {"condition": "Unknown", "icon": "❓"})
+                    current["condition"] = weather_info["condition"]
+                    current["icon"] = weather_info["icon"]
+
+                result["current"] = current
+
+            # Add complete daily forecast data (all available days)
+            if "daily" in weather_data:
+                daily = {}
+
+                # Copy all daily data arrays
+                for key in weather_data["daily"]:
+                    daily[key] = weather_data["daily"][key]
+
+                # Add weather condition descriptions for each day
+                if "weather_code" in daily:
+                    conditions = []
+                    icons = []
+                    for code in daily["weather_code"]:
+                        weather_info = self.weather_code_map.get(code, {"condition": "Unknown", "icon": "❓"})
+                        conditions.append(weather_info["condition"])
+                        icons.append(weather_info["icon"])
+                    daily["conditions"] = conditions
+                    daily["icons"] = icons
+
+                result["daily"] = daily
+
+                # Log how many days we're including
+                logger.debug(f"OpenMeteoFormatter: Included {len(daily.get('time', []))} days in forecast for {city_name}")
+
+            # Add a simplified format for compatibility with existing UIs
+            # This uses just the first day of forecast data
+            if "daily" in weather_data:
+                # Get temperature data and round to integers
+                temp_max = round(weather_data["daily"]["temperature_2m_max"][0])
+                temp_min = round(weather_data["daily"]["temperature_2m_min"][0])
+
+                # Get weather code for condition
+                weather_code = weather_data["daily"]["weather_code"][0]
+                weather_info = self.weather_code_map.get(weather_code, {"condition": "Unknown", "icon": "❓"})
+                condition = weather_info["condition"]
+                icon = weather_info["icon"]
+
+                # Add precipitation probability if available
+                precip = None
+                if "precipitation_probability_max" in weather_data["daily"]:
+                    precip = f"{weather_data['daily']['precipitation_probability_max'][0]}%"
+
+                # Add to result as a simplified format for backward compatibility
+                result["temp"] = f"{temp_max}°C"
+                result["high"] = temp_max
+                result["low"] = temp_min
+                result["conditions"] = condition
+                result["icon"] = icon
+                result["precipitation"] = precip
+
+            logger.debug(f"OpenMeteoFormatter: Extracted data for {city_name}: {json.dumps(result)[:200]}...")
             return result
-        except KeyError as e:
-            logger.exception(f"Error extracting forecast data for {city_name}: {e!s}")
+        except Exception as e:
+            logger.exception(f"OpenMeteoFormatter: Error extracting data for {city_name}: {e!s}")
             return {
-                "ᴄɪᴛʏ": f"{city_name}  ",
-                "ᴄᴏɴᴅ": "Data error  ",
-                "ʜ°ᴄ": "N/A  ",
-                "ʟ°ᴄ": "N/A  ",
-                "ᴘʀᴇᴄɪᴘ": "N/A",
-                "ᴅᴇᴛᴀɪʟs": json.dumps({"error": f"Data error: {e!s}"})
+                "city": city_name,
+                "error": f"Error extracting forecast data: {e!s}"
             }
 
 
@@ -358,7 +365,7 @@ class WeatherGovFormatter(WeatherFormatterInterface):
             return "Incomplete weather data."
 
         try:
-            now = datetime.now(tz=UTC)
+            now = datetime.now(tz=timezone.utc)
             current_date = now.strftime("%Y-%m-%d")
 
             periods = weather_data["properties"].get("periods", [])

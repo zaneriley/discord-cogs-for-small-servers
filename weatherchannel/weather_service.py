@@ -1,469 +1,595 @@
-import asyncio
-import json
+from __future__ import annotations
+
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
-from .config import ConfigManager
-from .weather_api import WeatherAPIFactory
-from .weather_formatter import (
-    OpenMeteoFormatter,
-    WeatherFormatter,
-    WeatherGovFormatter,
-)
+import aiohttp
+
+# Import config manager with fallback
+try:
+    from utilities.config_manager import ConfigManager
+except ImportError:
+    try:
+        from cogs.utilities.config_manager import ConfigManager
+    except ImportError:
+        logging.warning("[WeatherService] Could not import ConfigManager")
+        ConfigManager = object  # Use object as fallback
 
 logger = logging.getLogger(__name__)
 
+# Constants
+HTTP_OK = 200
+MAX_FORECAST_DAYS = 7
 
 class WeatherService:
-    def __init__(self, strings, config: Optional[ConfigManager] = None):
-        self.api_handlers = {}
-        self.strings = strings
+
+    """Service for retrieving and processing weather information from various APIs."""
+
+    def __init__(self, config: ConfigManager | None = None):
+        """
+        Initialize the WeatherService.
+
+        Args:
+            config: Optional configuration manager
+
+        """
         self.config = config
-        # Remove the service-level formatter initialization
-        # We'll create formatters per API type as needed
+        self.session = None
+        self.api_formatters = {}
+        self._initialize_api_formatters()
 
-    def _create_formatter(self, api_type: str) -> WeatherFormatter:
-        """Create appropriate formatter based on API type."""
-        if api_type == "open-meteo":
-            formatter = OpenMeteoFormatter()
-        elif api_type == "weather-gov":
-            formatter = WeatherGovFormatter(self.strings)
-        else:
-            error_msg = f"Unsupported API type: {api_type}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-        return WeatherFormatter(formatter=formatter)
-
-    async def fetch_weather(self, api_type: str, coords, city: str):
-        """Fetch and format weather data for given coordinates."""
-        logger.info(f"Fetching weather for {city} using {api_type}")
-
-        if api_type not in self.api_handlers:
-            self.api_handlers[api_type] = WeatherAPIFactory.create_weather_api_handler(api_type)
-
-        try:
-            # Create formatter for this API type
-            weather_formatter = self._create_formatter(api_type)
-
-            # Validate coordinates
-            if not isinstance(coords, tuple) or len(coords) != 2:
-                logger.error("Invalid coordinates format: %s", coords)
-                return {
-                    "error": self.strings["errors"]["service"]["invalid_coords_format"].format(
-                        city=city
-                    )
-                }
-
-            # Convert coordinates to string format
-            try:
-                coords_str = ",".join(map(str, map(float, coords)))
-            except ValueError:
-                logger.exception("Error converting coordinates to float for %s:", city)
-                return {
-                    "error": self.strings["errors"]["service"]["coords_conversion_error"].format(
-                        city=city
-                    )
-                }
-
-            # Fetch and format weather data
-            weather_data = await self.api_handlers[api_type].get_forecast(coords_str)
-            if city == "Tokyo":
-                logger.debug(f"Tokyo raw data structure: {json.dumps(weather_data)[:1000]}...")
-
-            # Handle different formatter types and extract data
-            if api_type == "open-meteo":
-                # For OpenMeteo API, we need to use the _extract_forecast_data method
-                if hasattr(weather_formatter.formatter, "_extract_forecast_data"):
-                    result = weather_formatter.formatter._extract_forecast_data(weather_data, city)
-                    if city == "Tokyo":
-                        logger.info(f"Tokyo formatted data: {result}")
-                    return result
-                logger.warning("OpenMeteo formatter doesn't have _extract_forecast_data method!")
-
-            # Default formatting for other APIs
-            return weather_formatter.format_individual_forecast(weather_data, city)
-
-        except ValueError as e:
-            logger.exception("Formatter creation failed: %s", str(e))
-            return {"error": str(e)}
-        except Exception:
-            logger.exception("Error processing forecast for %s:", city)
-            return {
-                "error": self.strings["errors"]["service"]["weather_fetch_error"].format(
-                    city=city
-                )
-            }
-
-    async def fetch_all_locations_weather(self, locations_data: dict[str, tuple[str, tuple[float, float]]]) -> list[dict[str, Any]]:
+    def _initialize_api_formatters(self):
         """
-        Fetch weather data for multiple locations and format as individual forecasts.
+        Initialize formatters for each supported weather API.
+
+        This sets up the formatters that will transform raw API responses into
+        standardized weather data format.
+        """
+        # Map API types to their respective formatters
+        self.api_formatters = {
+            "openmeteo": self._format_openmeteo_response,
+            "weathergov": self._format_weathergov_response,
+        }
+        logger.debug("[WeatherService] Initialized %d API formatters", len(self.api_formatters))
+
+    async def _ensure_session(self):
+        """
+        Ensure that an aiohttp session exists.
+
+        Creates a new session if one doesn't exist or if the existing one is closed.
+        """
+        if self.session is None or self.session.closed:
+            logger.debug("[WeatherService] Creating new aiohttp session")
+            self.session = aiohttp.ClientSession()
+
+    async def fetch_weather(self, api_type: str, coords: tuple[float, float], city_name: str = "Unknown") -> dict[str, Any]:
+        """
+        Fetch and format weather data for a given location.
 
         Args:
-            locations_data: Dictionary mapping city names to (api_type, coords) tuples
+            api_type: Type of weather API to use ('openmeteo' or 'weathergov')
+            coords: Tuple of (latitude, longitude)
+            city_name: Name of the city (for display/logging purposes)
 
         Returns:
-            List of formatted forecast dictionaries, filtering out error responses
+            Formatted weather data dictionary
 
         """
-        forecasts = await asyncio.gather(
-            *[self.fetch_weather(api_type, coords, city_name)
-              for city_name, (api_type, coords) in locations_data.items()]
-        )
-
-        # Filter out error responses for display
-        return [f for f in forecasts if isinstance(f, str) or (isinstance(f, dict) and "error" not in f)]
-
-    async def fetch_city_weather(self, city: str, locations_data: dict[str, tuple[str, tuple[float, float]]]) -> Optional[dict[str, Any]]:
-        """
-        Fetch weather data for a specific city.
-
-        Args:
-            city: Name of the city to fetch weather for
-            locations_data: Dictionary mapping city names to (api_type, coords) tuples
-
-        Returns:
-            Formatted forecast dictionary or None if city not found
-
-        """
-        # Case-insensitive city lookup
-        for location_name, (api_type, coords) in locations_data.items():
-            if location_name.lower() == city.lower():
-                return await self.fetch_weather(api_type, coords, location_name)
-
-        return None
-
-    async def get_weather_summary(self, forecasts: list) -> str:
-        """Get AI-generated weather summary"""
+        logger.debug("[WeatherService] Fetching weather for %s using %s API", city_name, api_type)
         try:
-            first_api_type = next(iter(self.api_handlers))  # Get first handler type
-            formatter = self._create_formatter(first_api_type)
+            # Get raw forecast data
+            raw_data = await self.get_raw_forecast_for_city(api_type, coords, city_name)
+            if not raw_data or "error" in raw_data:
+                error_msg = raw_data.get("error", "Unknown error") if isinstance(raw_data, dict) else "No data returned"
+                logger.warning("[WeatherService] Error fetching raw data for %s: %s",
+                              city_name, error_msg)
+                return {"error": error_msg}
 
-            # The generate_llm_summary method is directly on the formatter.formatter object
-            if hasattr(formatter.formatter, "generate_llm_summary"):
-                return await formatter.formatter.generate_llm_summary(forecasts)
-            logger.error("Formatter does not support LLM summaries")
-            return ""
-        except Exception as e:
-            logger.exception(f"Weather summary error: {e!s}")
-            return ""
+            # Format the data
+            formatter = self.api_formatters.get(api_type)
+            if not formatter:
+                logger.warning("[WeatherService] No formatter found for API type: %s", api_type)
+                return {"error": f"Unsupported API type: {api_type}"}
 
-    async def get_weather_summary_from_raw(self, raw_forecasts: dict) -> str:
-        """
-        Generate an AI summary from raw weather data.
+            formatted_data = formatter(raw_data, city_name)
+            if not formatted_data:
+                logger.warning("[WeatherService] Failed to format data for %s", city_name)
+                return {"error": "Data formatting failed"}
 
-        This method uses the raw data format provided by fetch_raw_data_for_summary
-        to generate a more detailed and accurate weather summary.
-
-        Args:
-            raw_forecasts: Dictionary of city names to their raw weather data
-
-        Returns:
-            Generated summary text
-
-        """
-        try:
-            # Create formatter using the first available API type
-            first_api_type = next(iter(self.api_handlers))
-            formatter = self._create_formatter(first_api_type)
-
-            # Check if formatter supports raw data summaries
-            if hasattr(formatter.formatter, "generate_llm_summary_from_raw"):
-                return await formatter.formatter.generate_llm_summary_from_raw(raw_forecasts)
-
-            # Fall back to converting raw data to the format expected by the existing method
-            logger.warning("Formatter doesn't support raw data summaries, converting to compatible format")
-
-            # Convert raw data to compatible format
-            compatible_forecasts = self._convert_raw_to_compatible_format(raw_forecasts)
-
-            # Use existing summary method
-            if hasattr(formatter.formatter, "generate_llm_summary"):
-                return await formatter.formatter.generate_llm_summary(compatible_forecasts)
-
-            logger.error("Formatter does not support any LLM summaries")
-            return ""
+            logger.debug("[WeatherService] Successfully fetched and formatted weather for %s", city_name)
+            return formatted_data
 
         except Exception as e:
-            logger.exception(f"Weather summary from raw data error: {e!s}")
-            return ""
+            logger.exception("[WeatherService] Error in fetch_weather for %s", city_name)
+            return {"error": f"Weather fetch failed: {str(e)}"}
 
-    def _convert_raw_to_compatible_format(self, raw_forecasts: dict) -> list:
+    async def get_raw_forecast_for_city(self, api_type: str, coords: tuple[float, float], city_name: str) -> dict[str, Any]:
         """
-        Convert raw weather data to a format compatible with the existing summary method.
+        Get raw forecast data from the specified API.
 
         Args:
-            raw_forecasts: Dictionary of city names to their raw weather data
+            api_type: Type of weather API to use
+            coords: Tuple of (latitude, longitude)
+            city_name: Name of the city
 
         Returns:
-            List of formatted forecast dictionaries as expected by generate_llm_summary
+            Raw API response data
 
         """
-        compatible_forecasts = []
+        latitude, longitude = coords
+        logger.debug("[WeatherService] Getting raw forecast for %s (%f, %f) using %s API",
+                    city_name, latitude, longitude, api_type)
 
-        for city_name, raw_data in raw_forecasts.items():
-            # Skip entries with errors
-            if "error" in raw_data:
-                continue
-
-            # Get API type from metadata
-            api_type = raw_data.get("_meta", {}).get("api_type")
-            if not api_type:
-                logger.warning(f"Missing API type in raw data for {city_name}, skipping")
-                continue
-
-            # Extract relevant data based on API type
-            if api_type == "open-meteo":
-                try:
-                    # Extract data similar to what _extract_forecast_data would produce
-                    temp_max = round(raw_data["daily"]["temperature_2m_max"][0])
-                    temp_min = round(raw_data["daily"]["temperature_2m_min"][0])
-
-                    # Get weather code for condition
-                    weather_code = raw_data["daily"]["weather_code"][0]
-
-                    # Create a simplified detailed data object
-                    current = raw_data.get("current", {})
-
-                    detailed_data = {
-                        "current_temp": round(current.get("temperature_2m", temp_max)),
-                        "feels_like": round(current.get("apparent_temperature", temp_max)),
-                        "conditions": f"Weather code: {weather_code}",
-                        "wind_speed": f"{current.get('wind_speed_10m', 0)} km/h",
-                        "humidity": f"{current.get('relative_humidity_2m', 0)}%",
-                        "high": temp_max,
-                        "low": temp_min,
-                        "precipitation": f"{raw_data['daily'].get('precipitation_probability_max', [0])[0]}%",
-                    }
-
-                    # Create compatible forecast entry
-                    compatible_forecast = {
-                        "ᴄɪᴛʏ": f"{city_name}  ",
-                        "ᴅᴇᴛᴀɪʟs": json.dumps(detailed_data)
-                    }
-
-                    compatible_forecasts.append(compatible_forecast)
-
-                except (KeyError, IndexError) as e:
-                    logger.exception(f"Error converting raw OpenMeteo data for {city_name}: {e!s}")
-
-            elif api_type == "weather-gov":
-                try:
-                    # Extract data from Weather.gov format
-                    periods = raw_data.get("properties", {}).get("periods", [])
-                    if periods:
-                        day_period = next((p for p in periods if p.get("isDaytime", True)), periods[0])
-                        night_period = next((p for p in periods if not p.get("isDaytime", True)), None)
-
-                        temp_max = day_period.get("temperature", 0)
-                        temp_min = night_period.get("temperature", 0) if night_period else temp_max - 10
-
-                        detailed_data = {
-                            "current_temp": temp_max,
-                            "conditions": day_period.get("shortForecast", ""),
-                            "wind_speed": day_period.get("windSpeed", ""),
-                            "humidity": f"{day_period.get('relativeHumidity', {}).get('value', 0)}%",
-                            "high": temp_max,
-                            "low": temp_min,
-                            "precipitation": f"{day_period.get('probabilityOfPrecipitation', {}).get('value', 0)}%",
-                        }
-
-                        # Create compatible forecast entry
-                        compatible_forecast = {
-                            "ᴄɪᴛʏ": f"{city_name}  ",
-                            "ᴅᴇᴛᴀɪʟs": json.dumps(detailed_data)
-                        }
-
-                        compatible_forecasts.append(compatible_forecast)
-
-                except (KeyError, IndexError) as e:
-                    logger.exception(f"Error converting raw Weather.gov data for {city_name}: {e!s}")
-
-        return compatible_forecasts
-
-    async def format_forecast_table(self, forecasts: list[dict[str, Any]], include_condition: bool = False) -> str:
-        """
-        Format a list of forecasts into a table string.
-
-        Args:
-            forecasts: List of formatted forecast dictionaries
-            include_condition: Whether to include the condition column
-
-        Returns:
-            Formatted table string
-
-        """
-        if not forecasts:
-            return self.strings["errors"]["service"]["no_weather_data"]
-
-        # Get the formatter for the first API type we have a handler for
         try:
-            first_api_type = next(iter(self.api_handlers))
-            formatter = self._create_formatter(first_api_type)
-            return formatter.format_forecast_table(forecasts, include_condition)
-        except (StopIteration, ValueError):
-            logger.exception("No API handlers available to create a formatter")
-            return self.strings["errors"]["service"]["no_formatter_available"]
+            # Ensure we have an active session
+            await self._ensure_session()
 
-    async def fetch_raw_weather_data(self, city: str, locations_data: dict[str, tuple[str, tuple[float, float]]]) -> dict[str, Any]:
-        """
-        Fetch raw, unformatted weather data for debugging.
-
-        Args:
-            city: Name of the city to fetch data for, or "Everywhere" for all cities
-            locations_data: Dictionary mapping city names to (api_type, coords) tuples
-
-        Returns:
-            Raw weather data dictionary
-
-        """
-        raw_data = {}
-
-        if city == "Everywhere":
-            # Fetch raw weather data for all locations
-            for city_name, (api_type, coords) in locations_data.items():
-                # Get the handler
-                if api_type not in self.api_handlers:
-                    self.api_handlers[api_type] = WeatherAPIFactory.create_weather_api_handler(api_type)
-
-                # Get raw forecast
-                try:
-                    coords_str = ",".join(map(str, coords))
-                    handler = self.api_handlers[api_type]
-                    raw_forecast = await handler.get_forecast(coords_str)
-                    raw_data[city_name] = raw_forecast
-                except Exception as e:
-                    logger.exception("Error retrieving raw forecast data for %s: %s", city_name, str(e))
-                    raw_data[city_name] = {"error": str(e)}
-        else:
-            # Try to match the city name (case-insensitive)
-            matched_city = None
-            for loc in locations_data:
-                if loc.lower() == city.lower():
-                    matched_city = loc
-                    break
-
-            if matched_city:
-                api_type, coords = locations_data[matched_city]
-
-                # Get the handler
-                if api_type not in self.api_handlers:
-                    self.api_handlers[api_type] = WeatherAPIFactory.create_weather_api_handler(api_type)
-
-                # Get raw forecast
-                try:
-                    coords_str = ",".join(map(str, coords))
-                    handler = self.api_handlers[api_type]
-                    raw_data = await handler.get_forecast(coords_str)
-                except Exception as e:
-                    logger.exception("Error retrieving raw forecast data for %s: %s", city, str(e))
-                    raw_data = {"error": str(e)}
+            if api_type == "openmeteo":
+                return await self._fetch_openmeteo_forecast(latitude, longitude)
+            elif api_type == "weathergov":
+                return await self._fetch_weathergov_forecast(latitude, longitude)
             else:
-                raw_data = {"error": f"City '{city}' not found in configured locations"}
+                logger.warning("[WeatherService] Unsupported API type: %s", api_type)
+                return {"error": f"Unsupported API type: {api_type}"}
 
-        return raw_data
+        except Exception as e:
+            logger.exception("[WeatherService] Error getting forecast for %s", city_name)
+            return {"error": f"API request failed: {str(e)}"}
 
-    async def fetch_raw_data_for_summary(self, city: str, locations_data: dict[str, tuple[str, tuple[float, float]]]) -> dict[str, Any]:
+    async def _fetch_openmeteo_forecast(self, latitude: float, longitude: float) -> dict[str, Any]:
         """
-        Fetch raw weather data from APIs with minimal processing to prepare for summary generation.
-
-        This method retrieves the raw API responses but adds some metadata and normalization
-        to make the data easier to work with for summarization, while preserving the original
-        structure and richness of the API responses.
+        Fetch forecast from Open-Meteo API.
 
         Args:
-            city: Name of the city to fetch data for, or "Everywhere" for all cities
-            locations_data: Dictionary mapping city names to (api_type, coords) tuples
+            latitude: Location latitude
+            longitude: Location longitude
 
         Returns:
-            Dictionary of city names to their minimally processed raw weather data
+            Raw API response data
 
         """
-        result_data = {}
+        logger.debug("[WeatherService] Fetching from Open-Meteo API for coords (%f, %f)",
+                    latitude, longitude)
 
-        # Determine which cities to fetch data for
-        if city == "Everywhere":
-            cities_to_fetch = list(locations_data.keys())
-        else:
-            # Try to match the city name (case-insensitive)
-            matched_city = None
-            for loc in locations_data:
-                if loc.lower() == city.lower():
-                    matched_city = loc
-                    break
-
-            if matched_city:
-                cities_to_fetch = [matched_city]
-            else:
-                # City not found, return error
-                return {city: {"error": f"City '{city}' not found in configured locations"}}
-
-        # Fetch data for each city
-        for city_name in cities_to_fetch:
-            api_type, coords = locations_data[city_name]
-
-            # Get the API handler
-            if api_type not in self.api_handlers:
-                self.api_handlers[api_type] = WeatherAPIFactory.create_weather_api_handler(api_type)
-
-            # Get raw forecast with error handling
-            try:
-                coords_str = ",".join(map(str, coords))
-                handler = self.api_handlers[api_type]
-                raw_forecast = await handler.get_forecast(coords_str)
-
-                # Apply minimal normalization based on API type
-                normalized_data = self._normalize_raw_data_for_summary(raw_forecast, api_type, city_name)
-                result_data[city_name] = normalized_data
-
-            except Exception as e:
-                logger.exception("Error retrieving raw forecast data for %s: %s", city_name, str(e))
-                result_data[city_name] = {"error": str(e)}
-
-        return result_data
-
-    def _normalize_raw_data_for_summary(self, raw_data: dict, api_type: str, city_name: str) -> dict:
-        """
-        Apply minimal normalization to raw data to ensure consistency across providers.
-
-        This preserves the original data structure while adding a few standardized fields
-        to help with summary generation.
-
-        Args:
-            raw_data: The raw API response data
-            api_type: The type of API (e.g., "open-meteo", "weather-gov")
-            city_name: The name of the city
-
-        Returns:
-            Minimally normalized data that preserves the original structure
-
-        """
-        # Start with a shallow copy of the raw data
-        normalized = dict(raw_data)
-
-        # Add metadata fields common to all providers
-        normalized["_meta"] = {
-            "api_type": api_type,
-            "city_name": city_name,
-            "processed_time": datetime.now(UTC).isoformat()
+        # Open-Meteo API parameters
+        params = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "current": ["temperature_2m", "relative_humidity_2m", "apparent_temperature",
+                      "weather_code", "wind_speed_10m", "wind_direction_10m",
+                      "precipitation"],
+            "daily": ["weather_code", "temperature_2m_max", "temperature_2m_min",
+                    "precipitation_sum", "precipitation_probability_max"],
+            "timezone": "auto",
+            "forecast_days": MAX_FORECAST_DAYS
         }
 
-        # Add units metadata based on API type
-        if api_type == "open-meteo":
-            normalized["temperature_unit"] = "°C"
-            normalized["precipitation_unit"] = "mm"
-            normalized["wind_speed_unit"] = "km/h"
-        elif api_type == "weather-gov":
-            # Extract units from the data if available
-            if "properties" in raw_data and "periods" in raw_data["properties"] and raw_data["properties"]["periods"]:
-                first_period = raw_data["properties"]["periods"][0]
-                normalized["temperature_unit"] = f"°{first_period.get('temperatureUnit', 'F')}"
-                normalized["precipitation_unit"] = "%"
-                normalized["wind_speed_unit"] = first_period.get("windSpeed", "").split()[-1] if "windSpeed" in first_period else "mph"
-            else:
-                # Default units for Weather.gov
-                normalized["temperature_unit"] = "°F"
-                normalized["precipitation_unit"] = "%"
-                normalized["wind_speed_unit"] = "mph"
+        url = "https://api.open-meteo.com/v1/forecast"
+        async with self.session.get(url, params=params) as response:
+            if response.status != HTTP_OK:
+                error_text = await response.text()
+                logger.warning("[WeatherService] Open-Meteo API error: %d - %s",
+                              response.status, error_text)
+                return {"error": f"API returned status {response.status}: {error_text}"}
 
-        return normalized
+            data = await response.json()
+            logger.debug("[WeatherService] Successfully retrieved Open-Meteo forecast")
+            return data
+
+    async def _fetch_weathergov_forecast(self, latitude: float, longitude: float) -> dict[str, Any]:
+        """
+        Fetch forecast from Weather.gov API.
+
+        Args:
+            latitude: Location latitude
+            longitude: Location longitude
+
+        Returns:
+            Raw API response data
+
+        """
+        logger.debug("[WeatherService] Fetching from Weather.gov API for coords (%f, %f)",
+                    latitude, longitude)
+
+        # First, get the forecast office and grid coordinates
+        points_url = f"https://api.weather.gov/points/{latitude},{longitude}"
+        try:
+            async with self.session.get(points_url) as response:
+                if response.status != HTTP_OK:
+                    error_text = await response.text()
+                    logger.warning("[WeatherService] Weather.gov points API error: %d - %s",
+                                  response.status, error_text)
+                    return {"error": f"Points API returned status {response.status}: {error_text}"}
+
+                points_data = await response.json()
+
+                # Extract the forecast URL from the points response
+                forecast_url = points_data.get("properties", {}).get("forecast")
+                hourly_forecast_url = points_data.get("properties", {}).get("forecastHourly")
+
+                if not forecast_url or not hourly_forecast_url:
+                    logger.warning("[WeatherService] Weather.gov API did not return forecast URLs")
+                    return {"error": "Forecast URLs not found in points response"}
+
+                # Fetch forecast data
+                async with self.session.get(forecast_url) as forecast_response:
+                    if forecast_response.status != HTTP_OK:
+                        error_text = await forecast_response.text()
+                        logger.warning("[WeatherService] Weather.gov forecast API error: %d - %s",
+                                      forecast_response.status, error_text)
+                        return {"error": f"Forecast API returned status {forecast_response.status}: {error_text}"}
+
+                    forecast_data = await forecast_response.json()
+
+                # Fetch hourly forecast data
+                async with self.session.get(hourly_forecast_url) as hourly_response:
+                    if hourly_response.status != HTTP_OK:
+                        error_text = await hourly_response.text()
+                        logger.warning("[WeatherService] Weather.gov hourly API error: %d - %s",
+                                      hourly_response.status, error_text)
+                        # Continue with just the daily forecast if hourly fails
+                        hourly_data = {"error": f"Hourly API returned status {hourly_response.status}"}
+                    else:
+                        hourly_data = await hourly_response.json()
+
+                # Combine the data
+                result = {
+                    "points": points_data,
+                    "forecast": forecast_data,
+                    "hourly": hourly_data
+                }
+
+                logger.debug("[WeatherService] Successfully retrieved Weather.gov forecast")
+                return result
+
+        except Exception as e:
+            logger.exception("[WeatherService] Error fetching from Weather.gov API")
+            return {"error": f"Weather.gov API request failed: {str(e)}"}
+
+    def _format_openmeteo_response(self, data: dict[str, Any], city_name: str) -> dict[str, Any]:
+        """
+        Format Open-Meteo API response into a standardized structure.
+
+        Args:
+            data: Raw API response data
+            city_name: Name of the city
+
+        Returns:
+            Formatted weather data
+
+        """
+        if not data or "error" in data:
+            return {"error": data.get("error", "Invalid data from Open-Meteo API")}
+
+        try:
+            # Weather code mapping
+            weather_codes = {
+                0: {"description": "Clear sky", "icon": "☀️"},
+                1: {"description": "Mainly clear", "icon": "🌤️"},
+                2: {"description": "Partly cloudy", "icon": "⛅"},
+                3: {"description": "Overcast", "icon": "☁️"},
+                45: {"description": "Fog", "icon": "🌫️"},
+                48: {"description": "Depositing rime fog", "icon": "🌫️"},
+                51: {"description": "Light drizzle", "icon": "🌦️"},
+                53: {"description": "Moderate drizzle", "icon": "🌧️"},
+                55: {"description": "Dense drizzle", "icon": "🌧️"},
+                56: {"description": "Light freezing drizzle", "icon": "🌨️"},
+                57: {"description": "Dense freezing drizzle", "icon": "🌨️"},
+                61: {"description": "Slight rain", "icon": "🌦️"},
+                63: {"description": "Moderate rain", "icon": "🌧️"},
+                65: {"description": "Heavy rain", "icon": "🌧️"},
+                66: {"description": "Light freezing rain", "icon": "🌨️"},
+                67: {"description": "Heavy freezing rain", "icon": "🌨️"},
+                71: {"description": "Slight snow fall", "icon": "🌨️"},
+                73: {"description": "Moderate snow fall", "icon": "🌨️"},
+                75: {"description": "Heavy snow fall", "icon": "❄️"},
+                77: {"description": "Snow grains", "icon": "❄️"},
+                80: {"description": "Slight rain showers", "icon": "🌦️"},
+                81: {"description": "Moderate rain showers", "icon": "🌧️"},
+                82: {"description": "Violent rain showers", "icon": "🌧️"},
+                85: {"description": "Slight snow showers", "icon": "🌨️"},
+                86: {"description": "Heavy snow showers", "icon": "❄️"},
+                95: {"description": "Thunderstorm", "icon": "⛈️"},
+                96: {"description": "Thunderstorm with slight hail", "icon": "⛈️"},
+                99: {"description": "Thunderstorm with heavy hail", "icon": "⛈️"}
+            }
+
+            # Extract current weather
+            current = data.get("current", {})
+            current_weather_code = current.get("weather_code")
+            current_weather = weather_codes.get(current_weather_code, {"description": "Unknown", "icon": "❓"})
+
+            # Extract daily forecast
+            daily = data.get("daily", {})
+            daily_weather_codes = daily.get("weather_code", [])
+            daily_time = daily.get("time", [])
+            daily_temp_max = daily.get("temperature_2m_max", [])
+            daily_temp_min = daily.get("temperature_2m_min", [])
+            daily_precip_sum = daily.get("precipitation_sum", [])
+            daily_precip_prob = daily.get("precipitation_probability_max", [])
+
+            # Build forecast data
+            daily_forecast = []
+            for i in range(min(len(daily_time), MAX_FORECAST_DAYS)):  # Ensure we get up to 7 days
+                if i < len(daily_weather_codes) and i < len(daily_temp_max) and i < len(daily_temp_min):
+                    weather_code = daily_weather_codes[i]
+                    weather_info = weather_codes.get(weather_code, {"description": "Unknown", "icon": "❓"})
+
+                    forecast_day = {
+                        "date": daily_time[i] if i < len(daily_time) else "",
+                        "temperature": {
+                            "high": daily_temp_max[i] if i < len(daily_temp_max) else None,
+                            "low": daily_temp_min[i] if i < len(daily_temp_min) else None,
+                            "unit": "°C"
+                        },
+                        "condition": {
+                            "description": weather_info["description"],
+                            "icon": weather_info["icon"]
+                        },
+                        "precipitation": {
+                            "amount": daily_precip_sum[i] if i < len(daily_precip_sum) else 0,
+                            "probability": daily_precip_prob[i] if i < len(daily_precip_prob) else 0,
+                            "unit": "mm"
+                        }
+                    }
+                    daily_forecast.append(forecast_day)
+
+            # Build the formatted response
+            formatted_data = {
+                "city": city_name,
+                "current": {
+                    "temperature": current.get("temperature_2m"),
+                    "feels_like": current.get("apparent_temperature"),
+                    "humidity": current.get("relative_humidity_2m"),
+                    "wind_speed": current.get("wind_speed_10m"),
+                    "wind_direction": current.get("wind_direction_10m"),
+                    "condition": {
+                        "description": current_weather["description"],
+                        "icon": current_weather["icon"]
+                    },
+                    "precipitation": current.get("precipitation", 0),
+                    "units": {
+                        "temperature": "°C",
+                        "wind_speed": "km/h",
+                        "precipitation": "mm"
+                    }
+                },
+                "forecast": daily_forecast,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "source": "Open-Meteo"
+            }
+
+            return formatted_data
+
+        except Exception as e:
+            logger.exception("[WeatherService] Error formatting Open-Meteo data")
+            return {"error": f"Data formatting failed: {str(e)}"}
+
+    def _format_weathergov_response(self, data: dict[str, Any], city_name: str) -> dict[str, Any]:
+        """
+        Format Weather.gov API response into a standardized structure.
+
+        Args:
+            data: Raw API response data
+            city_name: Name of the city
+
+        Returns:
+            Formatted weather data
+
+        """
+        if not data or "error" in data:
+            return {"error": data.get("error", "Invalid data from Weather.gov API")}
+
+        try:
+            # Extract forecast data
+            forecast_data = data.get("forecast", {}).get("properties", {}).get("periods", [])
+            hourly_data = data.get("hourly", {}).get("properties", {}).get("periods", [])
+
+            if not forecast_data:
+                return {"error": "No forecast periods found in Weather.gov response"}
+
+            # Get current conditions from the first hourly period
+            current = {}
+            if hourly_data and len(hourly_data) > 0:
+                first_hour = hourly_data[0]
+                current = {
+                    "temperature": first_hour.get("temperature"),
+                    "feels_like": None,  # Not provided directly by Weather.gov
+                    "humidity": None,    # Not provided directly in this response
+                    "wind_speed": self._parse_wind_speed(first_hour.get("windSpeed", "")),
+                    "wind_direction": first_hour.get("windDirection"),
+                    "condition": {
+                        "description": first_hour.get("shortForecast", ""),
+                        "icon": self._map_weathergov_icon(first_hour.get("shortForecast", ""))
+                    },
+                    "precipitation": None,  # Not provided directly
+                    "units": {
+                        "temperature": "°F" if first_hour.get("temperatureUnit") == "F" else "°C",
+                        "wind_speed": "mph",  # Weather.gov uses mph
+                        "precipitation": "in"  # Weather.gov uses inches
+                    }
+                }
+            else:
+                # Fallback to the first forecast period if no hourly data
+                if len(forecast_data) > 0:
+                    first_period = forecast_data[0]
+                    current = {
+                        "temperature": first_period.get("temperature"),
+                        "feels_like": None,
+                        "humidity": None,
+                        "wind_speed": self._parse_wind_speed(first_period.get("windSpeed", "")),
+                        "wind_direction": first_period.get("windDirection"),
+                        "condition": {
+                            "description": first_period.get("shortForecast", ""),
+                            "icon": self._map_weathergov_icon(first_period.get("shortForecast", ""))
+                        },
+                        "precipitation": None,
+                        "units": {
+                            "temperature": "°F" if first_period.get("temperatureUnit") == "F" else "°C",
+                            "wind_speed": "mph",
+                            "precipitation": "in"
+                        }
+                    }
+
+            # Process forecast periods into daily format
+            # Weather.gov provides periods for day and night separately
+            daily_forecast = []
+
+            # Group by day - each day has a day and night period
+            for i in range(0, min(14, len(forecast_data)), 2):
+                day_period = forecast_data[i] if i < len(forecast_data) else None
+                night_period = forecast_data[i+1] if i+1 < len(forecast_data) else None
+
+                if not day_period:
+                    continue
+
+                # Parse date from the start time
+                forecast_date = day_period.get("startTime", "").split("T")[0] if day_period else ""
+
+                # Extract temperatures
+                high_temp = day_period.get("temperature") if day_period else None
+                low_temp = night_period.get("temperature") if night_period else None
+
+                # Extract conditions - use day period's conditions
+                condition_desc = day_period.get("shortForecast", "") if day_period else ""
+                condition_icon = self._map_weathergov_icon(condition_desc)
+
+                # Create forecast day entry
+                forecast_day = {
+                    "date": forecast_date,
+                    "temperature": {
+                        "high": high_temp,
+                        "low": low_temp,
+                        "unit": "°F" if day_period.get("temperatureUnit") == "F" else "°C"
+                    },
+                    "condition": {
+                        "description": condition_desc,
+                        "icon": condition_icon
+                    },
+                    "precipitation": {
+                        "amount": None,  # Not provided directly by Weather.gov
+                        "probability": self._extract_precipitation_probability(day_period.get("detailedForecast", "")),
+                        "unit": "in"
+                    }
+                }
+                daily_forecast.append(forecast_day)
+
+                # Limit to 7 days
+                if len(daily_forecast) >= MAX_FORECAST_DAYS:
+                    break
+
+            # Build the formatted response
+            formatted_data = {
+                "city": city_name,
+                "current": current,
+                "forecast": daily_forecast,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "source": "Weather.gov"
+            }
+
+            return formatted_data
+
+        except Exception as e:
+            logger.exception("[WeatherService] Error formatting Weather.gov data")
+            return {"error": f"Data formatting failed: {str(e)}"}
+
+    def _parse_wind_speed(self, wind_speed_str: str) -> int | None:
+        """
+        Parse wind speed from Weather.gov format (e.g., '10 mph').
+
+        Args:
+            wind_speed_str: Wind speed string from Weather.gov
+
+        Returns:
+            Wind speed as an integer, or None if parsing fails
+
+        """
+        try:
+            if not wind_speed_str:
+                return None
+
+            # Extract the numeric part
+            parts = wind_speed_str.split()
+            if len(parts) > 0:
+                return int(parts[0])
+            else:
+                return None
+        except (ValueError, IndexError):
+            return None
+
+    def _map_weathergov_icon(self, condition: str) -> str:
+        """
+        Map Weather.gov condition to an emoji icon.
+
+        Args:
+            condition: Weather condition description
+
+        Returns:
+            Emoji icon representing the weather condition
+
+        """
+        condition = condition.lower()
+
+        if "thunderstorm" in condition:
+            return "⛈️"
+        elif "rain" in condition and "snow" in condition:
+            return "🌨️"
+        elif "rain" in condition or "shower" in condition:
+            if "light" in condition:
+                return "🌦️"
+        else:
+                return "🌧️"
+        elif "snow" in condition:
+            return "❄️"
+        elif "sleet" in condition or "ice" in condition:
+            return "🌨️"
+        elif "fog" in condition or "haze" in condition:
+            return "🌫️"
+        elif "cloud" in condition:
+            if "partly" in condition:
+                return "⛅"
+            else:
+                return "☁️"
+        elif "clear" in condition or "sunny" in condition:
+            return "☀️"
+        else:
+            return "❓"
+
+    def _extract_precipitation_probability(self, detailed_forecast: str) -> int | None:
+        """
+        Extract precipitation probability from detailed forecast text.
+
+        Args:
+            detailed_forecast: Detailed forecast text from Weather.gov
+
+        Returns:
+            Precipitation probability as an integer percentage, or None if not found
+
+        """
+        try:
+            if not detailed_forecast:
+                return None
+
+            # Look for patterns like "Chance of precipitation is 30%"
+            if "chance of precipitation is " in detailed_forecast.lower():
+                parts = detailed_forecast.lower().split("chance of precipitation is ")
+                if len(parts) > 1:
+                    percentage_part = parts[1].split("%")[0].strip()
+                    return int(percentage_part)
+
+            # Alternative patterns
+            import re
+            match = re.search(r'(\d+)% chance', detailed_forecast.lower())
+            if match:
+                return int(match.group(1))
+
+            return None
+        except (ValueError, IndexError):
+            return None
+
+    async def close(self):
+        """Close the HTTP session if it exists."""
+        if self.session and not self.session.closed:
+            logger.debug("[WeatherService] Closing aiohttp session")
+            await self.session.close()
