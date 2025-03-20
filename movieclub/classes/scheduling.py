@@ -11,12 +11,13 @@ logger = logging.getLogger(__name__)
 
 
 class MessageScheduler:
-    def __init__(self, scheduler: AsyncIOScheduler | None = None):
+    def __init__(self, scheduler: AsyncIOScheduler | None = None, bot=None):
         """
         Initialize the MessageScheduler with an optional scheduler.
         """
         self.scheduler = scheduler or AsyncIOScheduler()
         self.scheduler.start()
+        self.bot = bot
         logger.info("MessageScheduler initialized.")
 
     async def _scheduled_message_job(self, channel_id: int, message_content: str, role_id: int | None = None):
@@ -25,7 +26,15 @@ class MessageScheduler:
         """
         try:
             formatted_message = self._format_message(message_content, role_id)
-            await send_discord_message(channel_id, formatted_message)
+            if self.bot:
+                await send_discord_message(
+                    self.bot, 
+                    channel_id, 
+                    message_content=formatted_message,
+                    role_id=role_id
+                )
+            else:
+                logger.error(f"Cannot send message to channel {channel_id}: Bot reference not available")
             logger.info(f"Sent scheduled message to channel {channel_id}.")
         except Exception as e:
             logger.exception(f"Failed to send scheduled message to channel {channel_id}: {e}")

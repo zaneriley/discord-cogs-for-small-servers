@@ -4,7 +4,7 @@ import asyncio
 import json  # Import json
 import logging
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path  # Import Path
 
 import discord
@@ -12,27 +12,117 @@ import pytz
 from discord import app_commands
 from discord.ext import tasks
 from redbot.core import commands
+from redbot.core import Config
+from redbot.core.bot import Red
 
-from utilities.text_formatting_utils import format_row, get_max_widths
+# Check if .env file exists and load it if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    # Look for .env in project root
+    env_path = Path(__file__).parent.parent.parent / ".env"
+    if env_path.exists():
+        logging.info("[WeatherChannel] Loading environment variables from %s", env_path)
+        load_dotenv(dotenv_path=env_path)
+    else:
+        logging.warning("[WeatherChannel] No .env file found at %s", env_path)
+except ImportError:
+    logging.warning("[WeatherChannel] python-dotenv not installed, skipping .env loading in weatherchannel")
+
+# Try to import LLM utilities - fallback gracefully if they're not available
+try:
+    from cogs.utilities.llm.llm_utils import create_llm_chain
+except ImportError:
+    logging.exception("[WeatherChannel] Could not import create_llm_chain - LLM features will be disabled")
+    # Define a fallback function that returns None
+    def create_llm_chain():
+        logging.warning("[WeatherChannel] Using fallback create_llm_chain")
 
 from .config import ConfigManager
+from .weather_report import WeatherReportService
 from .weather_service import WeatherService
 
 logger = logging.getLogger(__name__)
 
+# Define constants
+MAX_DISCORD_MESSAGE_LENGTH = 1900  # Maximum length for code blocks in Discord messages
+
+def raise_missing_env_var(message):
+    """Raise a ValueError with a descriptive message.
+    
+    This function centralizes the logic for raising errors about missing
+    environment variables, making the code more maintainable.
+    
+    Args:
+        message: The error message to include
+        
+    Raises:
+        ValueError: Always raised with the provided message
+    """
+    raise ValueError(message)
 
 class WeatherChannel(commands.Cog):
 
     """A cog for reporting weather conditions."""
 
-    def __init__(self, bot):
+    def __init__(self, bot: Red):
         self.bot = bot
-        self.guild_id = int(os.getenv("GUILD_ID"))
+        logger.info("[WeatherChannel] Cog initializing...")
+
+        # Check if critical environment variables are set
+        try:
+            guild_id = os.getenv("GUILD_ID")
+            if not guild_id:
+                logger.error("[WeatherChannel] Missing GUILD_ID environment variable")
+                raise_missing_env_var("GUILD_ID environment variable is required")
+            self.guild_id = int(guild_id)
+            logger.debug("[WeatherChannel] Guild ID: %s", self.guild_id)
+        except (ValueError, TypeError) as e:
+            logger.exception("[WeatherChannel] Failed to parse GUILD_ID")
+            raise
+
+        # Log environment for LLM services
+        logger.debug("[WeatherChannel] Environment check - OPENAI_API_KEY: %s, ANTHROPIC_API_KEY: %s",
+                   "Set" if os.getenv("OPENAI_API_KEY") else "Not set",
+                   "Set" if os.getenv("ANTHROPIC_API_KEY") else "Not set")
+
         self.strings = self.load_strings()  # Load strings first so WeatherService can use them
-        self.weather_service = WeatherService(self.strings)  # Pass strings to WeatherService
+        logger.debug("[WeatherChannel] Loaded %d string entries", len(self.strings))
+        self.weather_service = WeatherService(self.strings, config=ConfigManager(Config.get_conf(self, identifier=12345678)))
         self.config_manager = ConfigManager(self.guild_id, self)
         self.api_handlers = {}  # Initialize the api_handlers dictionary - also likely not needed here, service handles it.
+
+        # Create LLM chain for weather narratives
+        try:
+            logger.debug("[WeatherChannel] Creating LLM chain...")
+            self.llm_chain = create_llm_chain()
+            # Log provider details for debugging
+            llm_providers = [type(node[1]).__name__ for node in self.llm_chain.nodes] if self.llm_chain and hasattr(self.llm_chain, "nodes") else []
+            logger.debug("[WeatherChannel] LLM chain created with providers: %s", llm_providers)
+
+            # Create weather report service with LLM support
+            self.weather_report_service = WeatherReportService(
+                weather_service=self.weather_service,
+                llm_provider=self.llm_chain.nodes[0][1] if self.llm_chain and hasattr(self.llm_chain, "nodes") and self.llm_chain.nodes else None
+            )
+            logger.info("[WeatherChannel] Weather report service initialized with LLM support")
+        except Exception:
+            logger.exception("[WeatherChannel] Failed to initialize LLM chain")
+            # Create weather report service without LLM support
+            self.weather_report_service = WeatherReportService(
+                weather_service=self.weather_service,
+                llm_provider=None
+            )
+            logger.warning("[WeatherChannel] Weather report service initialized without LLM support")
+
+        # Added tracking variables for scheduler status
+        self.next_forecast_time = None
+        self.scheduler_active = False
+        self.last_forecast_time = None
+        self.last_forecast_success = None
+
         self.on_forecast_task_complete.start()
+        logger.info("[WeatherChannel] Cog initialized. Registered commands: %s",
+                   [c.name for c in self.weather.commands])
 
 
     def load_strings(self) -> dict:  # Renamed for clarity, and to be called only once.
@@ -56,6 +146,10 @@ class WeatherChannel(commands.Cog):
         if next_eastern_6am < now_utc:
             next_eastern_6am += timedelta(days=1)
 
+        # Save the next forecast time
+        self.next_forecast_time = next_eastern_6am
+        self.scheduler_active = True
+
         # Format the next run time for readability and log the information
         next_run_time_eastern = next_eastern_6am.astimezone(eastern).strftime("%Y-%m-%d %I:%M %p %Z")
         logger.info(
@@ -67,7 +161,14 @@ class WeatherChannel(commands.Cog):
         await asyncio.sleep(delay)
 
         # Perform the forecast update task
-        await self.forecast_task()
+        try:
+            await self.forecast_task()
+            self.last_forecast_time = datetime.now(pytz.utc)
+            self.last_forecast_success = True
+        except Exception:
+            logger.exception("Error during forecast task")
+            self.last_forecast_time = datetime.now(pytz.utc)
+            self.last_forecast_success = False
 
         # Immediately reschedule for precision
         self.on_forecast_task_complete.restart()
@@ -75,137 +176,721 @@ class WeatherChannel(commands.Cog):
 
     def cog_unload(self):
         self.on_forecast_task_complete.cancel()
-        self.forecast_task.cancel()
 
 
-    weather = app_commands.Group(name="weather", description="Commands related to weather information")
+    weather = app_commands.Group(
+        name="weather",
+        description="Get weather information and forecasts for configured locations"
+    )
+    """Weather command group for retrieving and managing weather information.
+
+    This group contains commands for viewing current weather conditions,
+    generating summaries, accessing raw data, and configuring weather settings.
+
+    Basic commands:
+    • /weather current - View current weather for all or a specific location
+    • /weather summary - Generate an AI summary of weather conditions
+    • /weather report - Create a narrative weather report for all cities
+    • /weather schedule - Check when the next weather forecast is scheduled
+
+    Admin commands:
+    • /weather set channel - Configure channel for daily weather updates
+
+    Developer commands:
+    • /weather raw - Get raw JSON weather data
+    """
 
     @weather.command(
-        name="now",
-        # These need to be literals for Discord.py
-        description="Get current weather information. Shows all locations if none specified."
+        name="current",
+        description="Get current weather information for all locations or a specific city"
     )
     @app_commands.describe(
-        # This also needs to be a literal
-        location="Location to get weather information for (defaults to all locations)"
+        city="The city to get weather for (shows all cities if not specified)"
     )
-    @app_commands.choices(
-        location=[
-            app_commands.Choice(name="San Francisco", value="San Francisco"),
-            app_commands.Choice(name="Seattle", value="Seattle"),
-            app_commands.Choice(name="Blodgett", value="Blodgett"),
-            app_commands.Choice(name="New York City", value="New York City"),
-            app_commands.Choice(name="Boston", value="Boston"),
-            app_commands.Choice(name="Everywhere", value="Everywhere"),
-        ]
+    async def weather_current_slash_command(self, interaction: discord.Interaction, city: str = "Everywhere"):
+        """
+        Get current weather information for configured locations (slash command version).
+
+        Parameters
+        ----------
+        interaction
+            The Discord interaction
+        city
+            The city to get weather for (shows all cities if not specified)
+
+        """
+        logger.info("Command weather current (slash) invoked by %s with city: %s", interaction.user, city)
+        ctx = await commands.Context.from_interaction(interaction)
+        await self._weather_current_logic(ctx, city)
+
+    @commands.group(name="weather", aliases=["wx"])
+    @commands.guild_only()
+    async def weather_group(self, ctx):
+        """Weather commands for retrieving and managing weather information."""
+        if ctx.invoked_subcommand is None:
+            # Show help or a message about available subcommands
+            embed = discord.Embed(
+                title="Weather Commands",
+                description="Here are the available weather commands:",
+                color=discord.Color.blue()
+            )
+            embed.add_field(name="!weather current [city]", value="Get current weather information", inline=False)
+            embed.add_field(name="!weather summary [city]", value="Generate an AI summary of weather conditions", inline=False)
+            embed.add_field(name="!weather report", value="Create a narrative weather report for all cities", inline=False)
+            embed.add_field(name="!weather schedule", value="Check when the next weather forecast is scheduled", inline=False)
+            embed.add_field(name="!weather raw [city]", value="Get raw weather data for debugging", inline=False)
+            embed.add_field(name="!weather set channel [#channel]", value="Set the channel for daily weather updates (Admin only)", inline=False)
+            embed.set_footer(text="Type !help weather for more detailed information")
+            await ctx.send(embed=embed)
+
+    @weather_group.command(
+        name="current",
+        aliases=["now"],
+        description="Get current weather information for all locations or a specific city"
     )
-    async def weather_now(self, interaction: discord.Interaction, location: str | None = None):
-        """Get the current weather!"""
-        # Default to "Everywhere" if no location specified
-        location = location or "Everywhere"
+    async def weather_current_text_command(self, ctx, city: str = "Everywhere"):
+        """
+        Get current weather information for configured locations (text command version).
+
+        Parameters
+        ----------
+        ctx
+            The command context
+        city
+            The city to get weather for (shows all cities if not specified)
+
+        """
+        logger.info("Command weather current (text) invoked by %s with city: %s", ctx.author, city)
+        await self._weather_current_logic(ctx, city)
+
+    async def _weather_current_logic(self, ctx, city: str = "Everywhere"):
+        """
+        Shared logic for current weather commands.
+
+        Parameters
+        ----------
+        ctx
+            The command context
+        city
+            The city to get weather for (shows all cities if not specified)
+
+        """
+        # Retrieve default locations
+        default_locations = await self.config_manager.get_default_locations(self.guild_id)
+
+        if city == "Everywhere":
+            # Use the service to fetch weather for all locations
+            forecasts = await self.weather_service.fetch_all_locations_weather(default_locations)
+
+            if not forecasts:
+                await ctx.send(self.strings["errors"]["service"]["no_weather_data"])
+                return
+
+            # Use the service to format the table
+            table_string = await self.weather_service.format_forecast_table(forecasts, include_condition=False)
+
+        elif city.lower() in (loc.lower() for loc in default_locations):
+            # Use the service to fetch weather for specific city
+            forecast = await self.weather_service.fetch_city_weather(city, default_locations)
+
+            if not forecast or "error" in forecast:
+                error_message = forecast.get("error", self.strings["errors"]["service"]["weather_fetch_error"].format(city=city)) if forecast else self.strings["errors"]["service"]["weather_fetch_error"].format(city=city)
+                await ctx.send(error_message)
+                return
+
+            # Format single city forecast with condition included
+            table_string = await self.weather_service.format_forecast_table([forecast], include_condition=True)
+        else:
+            await ctx.send(self.strings["errors"]["location_not_recognized"])
+            return
+
+        # Send the formatted table to Discord
+        logger.debug(f"Final weather table: {table_string}")
+        await ctx.send(f"```{table_string}```")
+
+    @weather_current_slash_command.autocomplete("city")
+    async def weather_current_autocomplete(self, _: discord.Interaction, current: str):
+        """Provide autocomplete for city parameter."""
+        choices = await self.config_manager.get_city_choices()
+        return [choice for choice in choices if current.lower() in choice.name.lower()]
+
+    @weather.command(
+        name="raw",
+        description="Get raw weather data for debugging and prompt testing"
+    )
+    @app_commands.describe(
+        city="The city to get raw data for (shows all cities if not specified)"
+    )
+    async def weather_raw_slash_command(self, interaction: discord.Interaction, city: str = "Everywhere"):
+        """
+        Get raw JSON weather data for debugging and testing (slash command version).
+
+        Parameters
+        ----------
+        interaction
+            The Discord interaction
+        city
+            The city to get raw data for (shows all cities if not specified)
+
+        """
+        logger.info("Command weather raw (slash) invoked by %s with city: %s", interaction.user, city)
+        ctx = await commands.Context.from_interaction(interaction)
+        await self._weather_raw_logic(ctx, city)
+
+    @weather_group.command(
+        name="raw",
+        aliases=["data"],
+        description="Get raw JSON weather data for debugging and testing"
+    )
+    async def weather_raw_text_command(self, ctx, city: str = "Everywhere"):
+        """
+        Get raw JSON weather data for debugging and testing (text command version).
+
+        Parameters
+        ----------
+        ctx
+            The command context
+        city
+            The city to get raw data for (shows all cities if not specified)
+
+        """
+        logger.info("Command weather raw (text) invoked by %s with city: %s", ctx.author, city)
+        await self._weather_raw_logic(ctx, city)
+
+    async def _weather_raw_logic(self, ctx, city: str = "Everywhere"):
+        """
+        Shared logic for raw weather data commands.
+
+        Parameters
+        ----------
+        ctx
+            The command context
+        city
+            The city to get raw data for (shows all cities if not specified)
+
+        """
+        import json
+        import tempfile
 
         # Retrieve default locations
         default_locations = await self.config_manager.get_default_locations(self.guild_id)
 
-        if location == "Everywhere":
-            # Fetch weather for all locations
-            forecasts = await asyncio.gather(
-                *[self.weather_service.fetch_weather(api_type, coords, city)
-                  for city, (api_type, coords) in default_locations.items()]
+        # Use the service to fetch raw weather data
+        raw_data = await self.weather_service.fetch_raw_weather_data(city, default_locations)
+
+        if "error" in raw_data and len(raw_data) == 1:
+            await ctx.send(raw_data["error"])
+            return
+
+        # Convert to formatted JSON string
+        raw_json = json.dumps(raw_data, indent=2)
+
+        # Check if the data is too large for a Discord message
+        if len(raw_json) > MAX_DISCORD_MESSAGE_LENGTH:  # Leave some room for code block formatting
+            # Create a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as f:
+                f.write(raw_json)
+                temp_path = f.name
+
+            # Send as a file attachment
+            await ctx.send(
+                f"Raw weather data for {city} (sent as attachment due to size)",
+                file=discord.File(temp_path, f"weather_data_{city.replace(' ', '_')}.json")
             )
-            forecasts = [f for f in forecasts if isinstance(f, dict) and "error" not in f]
-            keys = ["ᴄɪᴛʏ", "ʜ°ᴄ", "ʟ°ᴄ", "ᴘʀᴇᴄɪᴘ"]
-        elif location in default_locations:
-            # Fetch weather for the specified location
-            api_type, coords = default_locations[location]
-            forecast_response = await self.weather_service.fetch_weather(api_type, coords, location)
-            if "error" in forecast_response:
-                await interaction.response.send_message(
-                    forecast_response["error"], ephemeral=True
-                )
-                return
-            forecasts = [forecast_response]
-            keys = ["ᴄɪᴛʏ", "ᴄᴏɴᴅ", "ʜ°ᴄ", "ʟ°ᴄ", "ᴘʀᴇᴄɪᴘ"]
+
+            # Clean up the temporary file
+            Path(temp_path).unlink()
         else:
-            await interaction.response.send_message(
-                self.strings["errors"]["location_not_recognized"], ephemeral=True
-            )
+            # Send as a code block
+            await ctx.send(f"```json\n{raw_json}\n```")
+
+    @weather_raw_slash_command.autocomplete("city")
+    async def weather_raw_autocomplete(self, _: discord.Interaction, current: str):
+        """Provide autocomplete for city parameter."""
+        choices = await self.config_manager.get_city_choices()
+        return [choice for choice in choices if current.lower() in choice.name.lower()]
+
+    @weather.command(
+        name="summary",
+        description="Generate an AI-powered natural language summary of weather conditions"
+    )
+    @app_commands.describe(
+        city="The city to generate a summary for (summarizes all cities if not specified)"
+    )
+    async def weather_summary_slash_command(self, interaction: discord.Interaction, city: str = "Everywhere"):
+        """
+        Generate an AI-powered natural language summary of weather conditions (slash command version).
+
+        Parameters
+        ----------
+        interaction
+            The Discord interaction
+        city
+            The city to generate a summary for (summarizes all cities if not specified)
+
+        """
+        logger.info("Command weather summary (slash) invoked by %s with city: %s", interaction.user, city)
+        ctx = await commands.Context.from_interaction(interaction)
+        await self._weather_summary_logic(ctx, city)
+
+    @weather_group.command(
+        name="summary",
+        aliases=["sum"],
+        description="Generate an AI-powered natural language summary of weather conditions"
+    )
+    async def weather_summary_text_command(self, ctx, city: str = "Everywhere"):
+        """
+        Generate an AI-powered natural language summary of weather conditions (text command version).
+
+        Parameters
+        ----------
+        ctx
+            The command context
+        city
+            The city to generate a summary for (summarizes all cities if not specified)
+
+        """
+        logger.info("Command weather summary (text) invoked by %s with city: %s", ctx.author, city)
+        await self._weather_summary_logic(ctx, city)
+
+    async def _weather_summary_logic(self, ctx, city: str = "Everywhere"):
+        """
+        Shared logic for weather summary commands.
+
+        Parameters
+        ----------
+        ctx
+            The command context
+        city
+            The city to generate a summary for (summarizes all cities if not specified)
+
+        """
+        await ctx.send("Generating weather summary, please wait...")
+
+        # Retrieve default locations
+        default_locations = await self.config_manager.get_default_locations(self.guild_id)
+
+        # Fetch raw weather data for summary using the new method
+        raw_forecasts = await self.weather_service.fetch_raw_data_for_summary(city, default_locations)
+
+        # Check if we have valid data
+        if not raw_forecasts:
+            await ctx.send(self.strings["errors"]["service"]["no_weather_data"])
             return
 
-        # Format the data
-        table_data = [forecast for forecast in forecasts if isinstance(forecast, dict)]
-        if not table_data:
-            await interaction.response.send_message(
-                self.strings["errors"]["service"]["no_weather_data"],
-                ephemeral=True
-            )
+        # Check for city-specific errors
+        if city != "Everywhere" and city in raw_forecasts and "error" in raw_forecasts[city]:
+            await ctx.send(raw_forecasts[city]["error"])
             return
 
-        alignments = ["left"] * len(keys)
-        widths = get_max_widths(table_data, keys)
-        header = format_row({k: k for k in keys}, keys, widths, alignments)
-        rows = [format_row(row, keys, widths, alignments) for row in table_data]
-        table_string = header + "\n" + "\n".join(rows)
+        # Check for any data to process
+        if all("error" in data for city_name, data in raw_forecasts.items()):
+            await ctx.send(self.strings["errors"]["service"]["no_weather_data"])
+            return
 
-        await interaction.response.send_message(f"`{table_string}`")
+        try:
+            # Generate summary using the new raw data method
+            summary = await self.weather_service.get_weather_summary_from_raw(raw_forecasts)
+            if not summary:
+                await ctx.send("Unable to generate weather summary. Please try again later.")
+                return
+
+            # Prepare a simplified preview of the raw data (limited to avoid huge messages)
+            preview_data = {}
+            for city_name, data in raw_forecasts.items():
+                if "error" not in data:
+                    if "current" in data:
+                        # For OpenMeteo
+                        preview_data[city_name] = {
+                            "temp": f"{data.get('current', {}).get('temperature_2m', 'N/A')}{data.get('temperature_unit', '°C')}",
+                            "humidity": f"{data.get('current', {}).get('relative_humidity_2m', 'N/A')}%",
+                            "conditions": self._get_condition_text(data)
+                        }
+                    elif "properties" in data and "periods" in data["properties"]:
+                        # For Weather.gov
+                        period = data["properties"]["periods"][0] if data["properties"]["periods"] else {}
+                        preview_data[city_name] = {
+                            "temp": f"{period.get('temperature', 'N/A')}{data.get('temperature_unit', '°F')}",
+                            "humidity": f"{period.get('relativeHumidity', {}).get('value', 'N/A')}%",
+                            "conditions": period.get("shortForecast", "Unknown")
+                        }
+
+            # Format preview data as string, limited to 500 chars
+            consolidated_data = json.dumps(preview_data, indent=2)[:500] + "..."
+
+            # Send back the summary
+            await ctx.send(
+                f"**Weather Summary:**\n{summary}\n\n*Data preview:*\n```\n{consolidated_data}\n```"
+            )
+        except Exception:
+            logger.exception("Error generating weather summary")
+            await ctx.send("An error occurred while generating the weather summary.")
+
+    def _get_condition_text(self, data):
+        """Extract weather condition text from OpenMeteo data."""
+        if "daily" in data and "weather_code" in data["daily"] and data["daily"]["weather_code"]:
+            weather_code = data["daily"]["weather_code"][0]
+            # Map known weather codes to text descriptions
+            weather_codes = {
+                0: "Clear sky",
+                1: "Mainly clear",
+                2: "Partly cloudy",
+                3: "Overcast",
+                45: "Fog",
+                48: "Depositing rime fog",
+                51: "Light drizzle",
+                53: "Moderate drizzle",
+                55: "Dense drizzle",
+                61: "Slight rain",
+                63: "Moderate rain",
+                65: "Heavy rain",
+                71: "Slight snow fall",
+                73: "Moderate snow fall",
+                75: "Heavy snow fall",
+                80: "Slight rain showers",
+                81: "Moderate rain showers",
+                82: "Violent rain showers",
+                95: "Thunderstorm"
+            }
+            return weather_codes.get(weather_code, f"Code {weather_code}")
+        return "Unknown"
+
+    @weather_summary_slash_command.autocomplete("city")
+    async def weather_summary_autocomplete(self, _: discord.Interaction, current: str):
+        """Provide autocomplete for city parameter."""
+        choices = await self.config_manager.get_city_choices()
+        return [choice for choice in choices if current.lower() in choice.name.lower()]
 
     async def forecast_task(self):
-        int(datetime.now(tz=UTC).timestamp())
+        int(datetime.now(tz=timezone.utc).timestamp())
 
         default_locations = await self.config_manager.get_default_locations(self.guild_id)
         if not default_locations:
             logger.warning("No default locations set for this guild.")
-            return
+            msg = "No default locations configured"
+            raise ValueError(msg)
+
         channel_id = await self.config_manager.get_weather_channel(self.guild_id)
         channel = self.bot.get_channel(channel_id)
-        if channel:
-            forecasts = await asyncio.gather(
-                *[self.weather_service.fetch_weather(api_type, coords, city) for city, (api_type, coords) in default_locations.items()]
-            )
-            logger.info(f"Fetched forecasts: {forecasts}") # Log all forecast results, including errors
 
-            # Ensure we have a list of dictionaries and filter out errors for table display.
-            table_data = [forecast for forecast in forecasts if isinstance(forecast, dict) and "error" not in forecast]
-
-            if not table_data: # Handle case where no valid forecast data is available (all errors, or no locations)
-                logger.warning("No valid weather data to report in forecast task.")
-                return # Exit forecast task if no valid data
-
-            keys = ["ᴄɪᴛʏ", "ʜ°ᴄ", "ʟ°ᴄ", "ᴘʀᴇᴄɪᴘ"]
-            alignments = ["left", "left", "left", "right"]
-            widths = get_max_widths(table_data, keys)
-
-            header = format_row({k: k for k in keys}, keys, widths, alignments)
-            rows = [format_row(row, keys, widths, alignments) for row in table_data]
-            table_string = header + "\n" + "\n".join(rows)
-
-            # Generate AI summary
-            summary = await self.weather_service.get_weather_summary(table_data)
-
-            # Build final message
-            message_content = (
-                f"{self.strings['weather_report_title']}\n"
-                f"`{table_string}`"
-                f"{summary if summary else ''}"
-            )
-
-            await channel.send(message_content, allowed_mentions=discord.AllowedMentions.none())
-        else:
+        if not channel:
             logger.warning("Weather channel not found.")
+            msg = "Weather channel not found or not configured"
+            raise ValueError(msg)
 
-    @commands.hybrid_command()
+        # Use the service to fetch and format weather data
+        forecasts = await self.weather_service.fetch_all_locations_weather(default_locations)
+
+        if not forecasts:
+            logger.warning("No valid weather data to report in forecast task.")
+            return
+
+        # Use the service to format the table
+        table_string = await self.weather_service.format_forecast_table(forecasts)
+
+        # Build final message - simplified to only include the table
+        message_content = f"```{table_string}```"
+
+        await channel.send(message_content, allowed_mentions=discord.AllowedMentions.none())
+
+    # Create a subgroup for settings
+    set_group = app_commands.Group(
+        name="set",
+        description="Configure weather settings",
+        parent=weather  # Specify the parent directly
+    )
+
+    @set_group.command(
+        name="channel",
+        description="Set the channel for daily weather updates (Admin only)"
+    )
+    @app_commands.describe(
+        channel="The text channel where daily weather reports will be posted"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def weather_set_channel_slash_command(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        """
+        Configure the channel where daily weather updates will be posted (slash command version).
+
+        Parameters
+        ----------
+        interaction
+            The Discord interaction
+        channel
+            The text channel where daily weather reports will be posted
+
+        """
+        logger.info(
+            "Command weather set channel (slash) invoked by %s with channel: %s",
+            interaction.user, channel.mention
+        )
+        ctx = await commands.Context.from_interaction(interaction)
+        await self._weather_set_channel_logic(ctx, channel)
+
+    @weather_group.group(name="set", aliases=["config"])
     @commands.has_permissions(administrator=True)
-    async def setweatherchannel(self, ctx, channel: discord.TextChannel):
-        """Sets the channel for weather updates."""
+    async def weather_set_group(self, ctx):
+        """Commands for configuring weather settings."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send("Please specify a setting to configure. Available options: `channel`")
+
+    @weather_set_group.command(
+        name="channel",
+        description="Set the channel for daily weather updates (Admin only)"
+    )
+    async def weather_set_channel_text_command(self, ctx, channel: discord.TextChannel):
+        """
+        Configure the channel where daily weather updates will be posted (text command version).
+
+        Parameters
+        ----------
+        ctx
+            The command context
+        channel
+            The text channel where daily weather reports will be posted
+
+        """
+        logger.info(
+            "Command weather set channel (text) invoked by %s with channel: %s",
+            ctx.author, channel.mention
+        )
+        await self._weather_set_channel_logic(ctx, channel)
+
+    async def _weather_set_channel_logic(self, ctx, channel: discord.TextChannel):
+        """
+        Shared logic for setting weather channel commands.
+
+        Parameters
+        ----------
+        ctx
+            The command context
+        channel
+            The text channel where daily weather reports will be posted
+
+        """
         try:
             await self.config_manager.set_weather_channel(ctx.guild.id, channel.id)
-            # Edit the strings in strings.json if you want to change these
+            # Use message from strings.json
             success_message = self.strings["messages"]["weather_channel_set_success"].format(channel_mention=channel.mention)
             await ctx.send(success_message)
             logger.info(
-                "Weather channel set to %s for guild %s (ID: %s)", channel.mention, ctx.guild.name, ctx.guild.id
+                "Weather channel set to %s for guild %s (ID: %s)",
+                channel.mention, ctx.guild.name, ctx.guild.id
             )
         except Exception:
             logger.exception("Failed to set weather channel for guild %s (ID: %s)", ctx.guild.name, ctx.guild.id)
             # Use string from strings.json
             await ctx.send(self.strings["errors"]["weather_channel_set_error"])
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error):
+        """Handle errors from slash commands."""
+        logger.error("Slash command error: %s", error)
+        if interaction.response.is_done():
+            await interaction.followup.send(f"An error occurred: {error}")
+        else:
+            await interaction.response.send_message(f"An error occurred: {error}", ephemeral=True)
+
+    @weather.command(
+        name="schedule",
+        description="Check when the next weather forecast is scheduled"
+    )
+    async def weather_schedule_slash_command(self, interaction: discord.Interaction):
+        """
+        Check when the next weather forecast is scheduled (slash command version).
+
+        Parameters
+        ----------
+        interaction
+            The Discord interaction
+
+        """
+        logger.info("Command weather schedule (slash) invoked by %s", interaction.user)
+        ctx = await commands.Context.from_interaction(interaction)
+        await self._weather_schedule_logic(ctx)
+
+    @weather_group.command(
+        name="schedule",
+        aliases=["sched", "when"],
+        description="Check when the next weather forecast is scheduled"
+    )
+    async def weather_schedule_text_command(self, ctx):
+        """
+        Check when the next weather forecast is scheduled (text command version).
+
+        Parameters
+        ----------
+        ctx
+            The command context
+
+        """
+        logger.info("Command weather schedule (text) invoked by %s", ctx.author)
+        await self._weather_schedule_logic(ctx)
+
+    async def _weather_schedule_logic(self, ctx):
+        """
+        Shared logic for weather schedule commands.
+
+        Parameters
+        ----------
+        ctx
+            The command context
+
+        """
+        embed = discord.Embed(
+            title="Weather Forecast Schedule",
+            color=discord.Color.blue()
+        )
+
+        # Check if scheduler is active
+        if not self.scheduler_active or not self.next_forecast_time:
+            embed.description = "⚠️ The weather scheduler is not active."
+            await ctx.send(embed=embed)
+            return
+
+        # Get channel information
+        channel_id = await self.config_manager.get_weather_channel(self.guild_id)
+        channel = self.bot.get_channel(channel_id)
+        channel_mention = channel.mention if channel else "Not configured"
+
+        # Calculate time until next forecast
+        now_utc = datetime.now(pytz.utc)
+        time_until = self.next_forecast_time - now_utc
+        hours, remainder = divmod(time_until.seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+
+        # Format next forecast time in user-friendly way
+        eastern = pytz.timezone("America/New_York")
+        next_time_formatted = self.next_forecast_time.astimezone(eastern).strftime("%A, %B %d at %I:%M %p %Z")
+
+        # Add information to embed
+        embed.add_field(
+            name="Next Forecast",
+            value=f"📅 {next_time_formatted}",
+            inline=False
+        )
+
+        embed.add_field(
+            name="Time Until Next Forecast",
+            value=f"⏱️ {hours} hours, {minutes} minutes",
+            inline=False
+        )
+
+        embed.add_field(
+            name="Forecast Channel",
+            value=f"📣 {channel_mention}",
+            inline=False
+        )
+
+        # Add last run information if available
+        if self.last_forecast_time:
+            last_run_time = self.last_forecast_time.astimezone(eastern).strftime("%A, %B %d at %I:%M %p %Z")
+            status = "✅ Successful" if self.last_forecast_success else "❌ Failed"
+            embed.add_field(
+                name="Last Forecast Run",
+                value=f"🕒 {last_run_time}\nStatus: {status}",
+                inline=False
+            )
+
+        await ctx.send(embed=embed)
+
+    @weather.command(
+        name="report",
+        description="Generate a narrative weather report for all configured cities"
+    )
+    async def weather_report_slash_command(self, interaction: discord.Interaction):
+        """
+        Generate a narrative weather report for all configured cities (slash command version).
+
+        This command uses LLM to generate a conversational weather report
+        that integrates data from all configured cities.
+
+        Parameters
+        ----------
+        interaction
+            The Discord interaction
+
+        """
+        logger.info("Command weather report (slash) invoked by %s", interaction.user)
+        ctx = await commands.Context.from_interaction(interaction)
+        await self._weather_report_logic(ctx)
+
+    @weather_group.command(
+        name="report",
+        aliases=["narrative"],
+        description="Generate a narrative weather report for all configured cities"
+    )
+    async def weather_report_text_command(self, ctx):
+        """
+        Generate a narrative weather report for all configured cities (text command version).
+
+        This command uses LLM to generate a conversational weather report
+        that integrates data from all configured cities.
+
+        Parameters
+        ----------
+        ctx
+            The command context
+
+        """
+        logger.info("Command weather report (text) invoked by %s", ctx.author)
+        await self._weather_report_logic(ctx)
+
+    async def _weather_report_logic(self, ctx):
+        """
+        Shared logic for weather report commands.
+
+        This method leverages the weather_report_service to gather data across all cities
+        and process it through an LLM to generate a natural language narrative report.
+
+        Parameters
+        ----------
+        ctx
+            The command context
+
+        """
+        logger.debug("[WeatherChannel] Weather report requested by %s in guild %s",
+                    ctx.author, ctx.guild.id)
+        await ctx.send("Generating weather report, please wait...")
+
+        # Retrieve default locations
+        default_locations = await self.config_manager.get_default_locations(self.guild_id)
+        logger.debug("[WeatherChannel] Generating report for %d configured locations",
+                    len(default_locations))
+
+        if not default_locations:
+            logger.warning("[WeatherChannel] No locations configured for guild %s", ctx.guild.id)
+            await ctx.send("No locations configured. Please add locations first.")
+            return
+
+        try:
+            # Generate the weather narrative report
+            logger.debug("[WeatherChannel] Calling weather_report_service.generate_weather_summary()")
+            report = await self.weather_report_service.generate_weather_summary(default_locations)
+
+            if not report:
+                if not self.weather_report_service.llm_provider:
+                    logger.warning("[WeatherChannel] No LLM provider available, cannot generate narrative")
+                    await ctx.send("Unable to generate weather report: LLM provider not available.")
+                else:
+                    logger.error("[WeatherChannel] Failed to generate report despite having LLM provider")
+                    await ctx.send("Unable to generate weather report. Please try again later.")
+                return
+
+            # Create a nice embed for the report
+            logger.debug("[WeatherChannel] Successfully generated report (%d characters)", len(report))
+            embed = discord.Embed(
+                title="📊 Weather Report",
+                description=report,
+                color=discord.Color.blue()
+            )
+
+            # Add timestamp
+            current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            embed.set_footer(text=f"Generated on {current_time}")
+
+            await ctx.send(embed=embed)
+            logger.info("[WeatherChannel] Weather report sent to channel %s", ctx.channel.id)
+
+        except Exception:
+            logger.exception("[WeatherChannel] Error generating weather report")
+            await ctx.send("An error occurred while generating the weather report.")

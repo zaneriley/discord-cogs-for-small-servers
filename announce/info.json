@@ -1,0 +1,15 @@
+{
+    "author": ["Your Name (yourname)"],
+    "name": "Announce",
+    "short": "Discord announcement system for servers",
+    "description": "A comprehensive announcement system for Discord servers. Send text or rich embed announcements, schedule messages, create recurring announcements, and manage templates.",
+    "install_msg": "Thanks for installing the Announce cog! Use `[p]announce` to get started.",
+    "tags": ["announcement", "notifications", "scheduling", "embed", "utility"],
+    "min_bot_version": "3.5.0",
+    "end_user_data_statement": "This cog stores Discord IDs for channels, roles, and users as configured by server administrators. It also stores scheduled announcements and templates. No personal information is collected.",
+    "hidden": false,
+    "disabled": false,
+    "required_cogs": {},
+    "requirements": [],
+    "type": "COG"
+} 

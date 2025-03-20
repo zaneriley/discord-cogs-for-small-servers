@@ -41,7 +41,22 @@ lint.ignore = [
     "TD002",
     "TD003",
     "FIX002", # too verbose descriptions of todos
+    "S101",   # disable warnings about assert statements in tests
+    "PLR0911", # Too many return statements
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments in function definition
+    "PLR0915", # Too many statements
 ]
 
-per-file-ignores = {}    # Enforce rule checks uniformly across the codebase
+[tool.ruff.lint.per-file-ignores]
+"*/tests/**/*.py" = [
+    "ARG001",   # Unused function arguments
+    "ARG002",   # Unused method arguments
+    "PLR2004",  # Magic value used in comparison
+    "PT011",    # pytest.raises() is too broad
+    "PTH100",   # Path handling
+    "PTH120",   # Use Path.parent instead of dirname
+    "F811",     # Redefinition of unused name
+]
+
 # Additional configuration options can be added here.

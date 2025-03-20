@@ -1,14 +1,14 @@
 {
     "author": ["badcity"],
     "description": "Provides weather info in nostalgic sort of way",
-    "install_msg": "Thank you for installing the WeatherChannel cog! I hope it helps you connect with your friends.",
+    "install_msg": "Thank you for installing the WeatherChannel cog! I hope it helps you connect with your friends. Make sure you set up your `.env` file with the necessary API keys and configuration.",
     "short": "Provides weather info in nostalgic sort of way",
     "end_user_data_statement": "This cog does not persistently store end user data.",
     "min_bot_version": "3.0.0",
     "hidden": false,
     "disabled": false,
     "required_cogs": {},
-    "requirements": ["aiohttp", "wcwidth"],
-    "tags": ["weather", "nostalgia"],
+    "requirements": ["aiohttp", "wcwidth", "pytz", "python-dotenv"],
+    "tags": ["weather", "nostalgia", "utility"],
     "type": "COG"
 }

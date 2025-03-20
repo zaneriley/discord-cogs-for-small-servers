@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union, Optional
 
 import aiofiles
 import aiohttp
@@ -11,6 +11,7 @@ from discord import ForumTag, HTTPException, NotFound, TextChannel
 from discord.ui import Item, Modal, View
 
 from utilities.image_utils import get_image_handler
+from redbot.core.bot import Red
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -115,47 +116,93 @@ ROLE_NOT_FOUND_ERROR = "The provided role ID was not found."
 CHANNEL_TYPE_ERROR = "Provided channel is not a text channel."
 
 
-async def send_discord_message(ctx: Context, channel_id: int, message_content: str, role_id: int | None = None) -> str:
+async def send_discord_message(
+    bot_or_ctx: Union[Context, Red], 
+    channel_id: int, 
+    message_content: str = "",
+    role_id: Optional[int] = None,
+    embed: Optional[discord.Embed] = None  # Add embed parameter
+) -> str:
     """
-    Sends a scheduled message to a specified channel.
-    If a role_id is provided, it mentions the role in the message.
-    :param ctx: Command context
-    :param channel_id: The ID of the channel to send the message to
-    :param message_content: The content of the message
-    :param role_id: The ID of the role to mention, optional
-    :return: Status message
+    Sends a message to a specified channel with optional embed and role mention.
+    
+    Args:
+        bot_or_ctx: Discord bot or command context
+        channel_id: The ID of the channel to send the message to
+        message_content: The text content of the message (optional)
+        role_id: The ID of the role to mention (optional)
+        embed: A Discord Embed object to include (optional)
+        
+    Returns:
+        A status message string indicating success or failure
     """
-    channel = ctx.guild.get_channel(channel_id)
+    # Determine if we have a Context or a Bot
+    is_context = hasattr(bot_or_ctx, 'guild')
+    
+    # Get the channel based on what we're working with
+    if is_context:
+        ctx = bot_or_ctx
+        channel = ctx.guild.get_channel(channel_id)
+    else:
+        bot = bot_or_ctx
+        channel = bot.get_channel(channel_id)
+        
+        # If channel not found, try fetching it
+        if not channel:
+            try:
+                channel = await bot.fetch_channel(channel_id)
+            except discord.NotFound:
+                return "Invalid channel ID."
+            except discord.Forbidden:
+                return "Bot does not have permission to access channel."
+            except Exception as e:
+                logger.exception("Error fetching channel")
+                return f"Error accessing channel: {str(e)}"
+
     if not channel:
-        await ctx.send("Invalid channel ID or channel not found.")
+        if is_context:
+            await ctx.send("Invalid channel ID or channel not found.")
         return "Invalid channel ID."
 
-    if not isinstance(channel, TextChannel):
-        await ctx.send(CHANNEL_TYPE_ERROR)
+    # Check if channel is proper type
+    if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
+        if is_context:
+            await ctx.send(CHANNEL_TYPE_ERROR)
         return CHANNEL_TYPE_ERROR
 
-    # Preparing Message
+    # Add role mention if needed
+    content = message_content
     if role_id:
-        role = ctx.guild.get_role(role_id)
+        guild = channel.guild
+        role = guild.get_role(role_id)
         if not role:
-            await ctx.send(ROLE_NOT_FOUND_ERROR)
+            if is_context:
+                await ctx.send(ROLE_NOT_FOUND_ERROR)
             return ROLE_NOT_FOUND_ERROR
-        role_mention = f"<@&{role_id}>"
-        message_content = f"{role_mention}\n{message_content}"
+        
+        # Add role mention to content
+        content = f"<@&{role_id}>\n{content}" if content else f"<@&{role_id}>"
 
-    # Sending Message
+    # Ensure we have either content or embed (Discord requires at least one)
+    if not content and not embed:
+        return "Cannot send an empty message. Provide content or embed."
+        
+    # Send the message - using Discord's API directly with proper parameters
     try:
-        await channel.send(message_content)
-    except HTTPException:
-        await ctx.send(SEND_MESSAGE_ERROR)
-        logger.exception("HTTPException while sending message to channel %s", {channel.id})
-        return SEND_MESSAGE_ERROR
-    except Exception:
-        logger.exception("Unexpected error sending message to channel %s", {channel.id})
-        await ctx.send(SEND_MESSAGE_ERROR)
-        return SEND_MESSAGE_ERROR
-    else:
+        await channel.send(content=content, embed=embed)
         return "Message sent successfully."
+    except discord.HTTPException as e:
+        error_msg = f"HTTP error sending message: {str(e)}"
+        if is_context:
+            await ctx.send(SEND_MESSAGE_ERROR)
+        logger.exception(error_msg)
+        return error_msg
+    except Exception as e:
+        error_msg = f"Unexpected error sending message: {str(e)}"
+        if is_context:
+            await ctx.send(SEND_MESSAGE_ERROR)
+        logger.exception(error_msg)
+        return error_msg
 
 
 MAX_ITEMS_LIMIT = 25  # Define a constant for the maximum number of items

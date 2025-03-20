@@ -1,0 +1,35 @@
+{
+  "cities": {
+    "Seattle": {
+      "api_type": "weather-gov",
+      "coordinates": [47.6062, -122.3321],
+      "display_name": "Seattle"
+    },
+    "Blodgett": {
+      "api_type": "weather-gov",
+      "coordinates": [44.6146, -123.5585],
+      "display_name": "Blodgett"
+    },
+    "New York City": {
+      "api_type": "weather-gov",
+      "coordinates": [40.7128, -74.0060],
+      "display_name": "New York City"
+    },
+    "Boston": {
+      "api_type": "weather-gov",
+      "coordinates": [42.3601, -71.0589],
+      "display_name": "Boston"
+    },
+    "Tokyo": {
+      "api_type": "open-meteo",
+      "coordinates": [35.6895, 139.6917],
+      "display_name": "Tokyo"
+    }
+  },
+  "special_options": {
+    "Everywhere": {
+      "display_name": "Everywhere",
+      "description": "All configured cities"
+    }
+  }
+} 

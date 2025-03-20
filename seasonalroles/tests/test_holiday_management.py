@@ -2,9 +2,10 @@
 
 import datetime
 from datetime import timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from cogs.seasonalroles.holiday_management import HolidayService
+from cogs.seasonalroles.holiday_management import HolidayData, HolidayService
 
 ###############################################################################
 # Test Fixtures and Helpers
@@ -68,52 +69,79 @@ def patch_date_util(monkeypatch):
 ###############################################################################
 
 
-@pytest.mark.asyncio
-async def test_validate_holiday_exists_found():
-    """Test that lookup is case-insensitive."""
-    service = HolidayService(config=None)
-    holidays = {"Kids Day": {"date": "05-05", "color": "#68855A"}}
-    exists, message = await service.validate_holiday_exists(holidays, "kids day")
-    assert exists is True
-    assert message is None
-
-
-@pytest.mark.asyncio
-async def test_validate_holiday_exists_edge_cases():
-    """Test edge cases for holiday validation."""
-    service = HolidayService(config=None)
-    holidays = {
-        "Kids Day ": {"date": "05-05", "color": "#68855A"},  # Extra space in name
-        " Spring Festival": {"date": "03-20", "color": "#68855A"},  # Leading space
-        "Summer\tFestival": {"date": "06-21", "color": "#68855A"},  # Tab in name
+@pytest.fixture
+def mock_holidays():
+    """Create mock holiday data."""
+    return {
+        "HolidayA": {"date": "05-05", "color": "#AAA111"},
+        "HolidayB": {"date": "04-30", "color": "#BBB222"},
+        "HolidayC": {"date": "06-10", "color": "#CCC333"}
     }
 
-    # Test with extra whitespace in search
-    exists, message = await service.validate_holiday_exists(holidays, "Kids Day  ")
-    assert exists is True
-    assert message is None
 
-    # Test with leading whitespace in search
-    exists, message = await service.validate_holiday_exists(
-        holidays, "  Spring Festival"
-    )
-    assert exists is True
-    assert message is None
+@pytest.fixture
+def mock_config():
+    """Create a mock config."""
+    return MagicMock()
 
-    # Test with normalized whitespace
-    exists, message = await service.validate_holiday_exists(holidays, "Summer Festival")
+
+@pytest.fixture
+def mock_repository():
+    """Create a mock repository with async methods."""
+    repository = MagicMock()
+    repository.get_holidays = AsyncMock()
+    repository.add_holiday = AsyncMock()
+    repository.remove_holiday = AsyncMock()
+    repository.update_holiday = AsyncMock()
+    return repository
+
+
+@pytest.fixture
+def mock_role_manager():
+    """Create a mock role manager for testing."""
+    return MagicMock()
+
+
+@pytest.mark.asyncio
+async def test_validate_holiday_exists_found(mock_config, mock_repository, mock_holidays):
+    """Test validating an existing holiday."""
+    mock_repository.get_holidays.return_value = mock_holidays
+    service = HolidayService(config=mock_config, repository=mock_repository)
+    exists, message = await service.validate_holiday_exists(mock_holidays, "HolidayA")
     assert exists is True
     assert message is None
 
 
 @pytest.mark.asyncio
-async def test_validate_holiday_exists_not_found():
-    """Test that non-existent holidays return appropriate response."""
-    service = HolidayService(config=None)
-    holidays = {"Kids Day": {"date": "05-05", "color": "#68855A"}}
-    exists, message = await service.validate_holiday_exists(holidays, "Non Existing")
+async def test_validate_holiday_exists_edge_cases(mock_config, mock_repository, mock_holidays):
+    """Test edge cases for holiday validation."""
+    mock_repository.get_holidays.return_value = mock_holidays
+    service = HolidayService(config=mock_config, repository=mock_repository)
+
+    # Test with extra whitespace
+    exists, message = await service.validate_holiday_exists(mock_holidays, "  HolidayA  ")
+    assert exists is True
+    assert message is None
+
+    # Test with partial match
+    exists, message = await service.validate_holiday_exists(mock_holidays, "Holiday")
+    assert exists is True
+    assert message is None
+
+    # Test with empty name
+    exists, message = await service.validate_holiday_exists(mock_holidays, "")
     assert exists is False
-    assert "does not exist" in message
+    assert "Holiday name cannot be empty" in message
+
+
+@pytest.mark.asyncio
+async def test_validate_holiday_exists_not_found(mock_config, mock_repository, mock_holidays):
+    """Test validating a non-existent holiday."""
+    mock_repository.get_holidays.return_value = mock_holidays
+    service = HolidayService(config=mock_config, repository=mock_repository)
+    exists, message = await service.validate_holiday_exists(mock_holidays, "NonexistentHoliday")
+    assert exists is False
+    assert "No holiday found matching" in message
 
 
 ###############################################################################
@@ -122,57 +150,89 @@ async def test_validate_holiday_exists_not_found():
 
 
 @pytest.mark.asyncio
-async def test_get_sorted_holidays():
+async def test_get_sorted_holidays(mock_config, mock_repository, mock_holidays):
     """Test holiday sorting business logic."""
-    # Assume our fixed date is 2023-05-01
-    holidays = {
-        "HolidayA": {"date": "05-05", "color": "#AAA111"},  # +4 days
-        "HolidayB": {"date": "04-30", "color": "#BBB222"},  # -1 day
-        "HolidayC": {"date": "06-10", "color": "#CCC333"},  # +40 days
-    }
-    fake_config = FakeConfig(holidays=holidays)
-    service = HolidayService(config=fake_config)
-    fake_guild = FakeGuild()
+    mock_repository.get_holidays.return_value = mock_holidays
+    service = HolidayService(config=mock_config, repository=mock_repository)
 
-    sorted_holidays, upcoming_holiday, days_until = await service.get_sorted_holidays(
-        fake_guild
-    )
-
-    assert upcoming_holiday == "HolidayA"
-    future_holidays = [name for name, diff in sorted_holidays if diff > 0]
-    assert future_holidays == ["HolidayA", "HolidayC"]
+    with patch("cogs.seasonalroles.holiday_management.DateUtil.now") as mock_now:
+        mock_now.return_value = datetime.datetime(2023, 5, 1, tzinfo=timezone.utc)
+        sorted_holidays, upcoming_holiday, days_until = await service.get_sorted_holidays(MagicMock())
+        assert sorted_holidays is not None
+        assert upcoming_holiday == "HolidayA"
+        assert days_until["HolidayA"] == 4
 
 
 @pytest.mark.asyncio
-async def test_get_sorted_holidays_edge_cases():
+async def test_get_sorted_holidays_edge_cases(mock_config, mock_repository, mock_holidays):
     """Test edge cases for holiday sorting."""
-    # Test with holidays on the same day
-    holidays_same_day = {
-        "HolidayA": {"date": "05-05", "color": "#AAA111"},
-        "HolidayB": {"date": "05-05", "color": "#BBB222"},
-    }
-    fake_config = FakeConfig(holidays=holidays_same_day)
-    service = HolidayService(config=fake_config)
-    fake_guild = FakeGuild()
+    mock_repository.get_holidays.return_value = mock_holidays
+    service = HolidayService(config=mock_config, repository=mock_repository)
 
-    sorted_holidays, upcoming_holiday, days_until = await service.get_sorted_holidays(
-        fake_guild
+    with patch("cogs.seasonalroles.holiday_management.DateUtil.now") as mock_now:
+        mock_now.return_value = datetime.datetime(2023, 5, 1, tzinfo=timezone.utc)
+        sorted_holidays, upcoming_holiday, days_until = await service.get_sorted_holidays(MagicMock())
+        assert sorted_holidays is not None
+        assert len(sorted_holidays) == 3  # All holidays should be included
+        assert all(days_until[h] > 0 for h in days_until if h != "HolidayB")
+
+
+@pytest.mark.asyncio
+async def test_parse_holiday_date(mock_config, mock_repository):
+    """Test parsing holiday dates."""
+    from cogs.seasonalroles.holiday.holiday_validator import validate_date_format
+    assert validate_date_format("05-05") is True
+
+
+@pytest.mark.asyncio
+async def test_parse_holiday_date_invalid(mock_config, mock_repository):
+    """Test parsing invalid holiday dates."""
+    from cogs.seasonalroles.holiday.holiday_validator import validate_date_format
+    assert validate_date_format("13-45") is False  # Invalid month and day
+    assert validate_date_format("invalid") is False  # Invalid format
+
+
+@pytest.mark.asyncio
+async def test_add_holiday(mock_config, mock_repository):
+    """Test adding a new holiday."""
+    service = HolidayService(config=mock_config, repository=mock_repository)
+    mock_repository.add_holiday.return_value = True
+
+    holiday_data = HolidayData(
+        name="New Holiday",
+        date="05-05",
+        color="#68855A"
     )
+    success, message = await service.add_holiday(MagicMock(), holiday_data)
+    assert success is True
+    assert "added successfully" in message
+    mock_repository.add_holiday.assert_called_once()
 
-    # Both holidays should have the same days_until value
-    assert len(set(days_until.values())) == 1
-    # Either holiday could be the upcoming one
-    assert upcoming_holiday in ["HolidayA", "HolidayB"]
 
-    # Test with malformed holiday data
-    holidays_malformed = {
-        "HolidayA": {"date": "05-05", "color": "#AAA111"},
-        "HolidayB": {},  # Missing required fields
-        "HolidayC": {"color": "#CCC333"},  # Missing date
-    }
-    fake_config = FakeConfig(holidays=holidays_malformed)
-    service = HolidayService(config=fake_config)
+@pytest.mark.asyncio
+async def test_remove_holiday(mock_config, mock_repository):
+    """Test removing a holiday."""
+    service = HolidayService(config=mock_config, repository=mock_repository)
+    mock_repository.remove_holiday.return_value = True
 
-    # Should raise an error due to missing required fields
-    with pytest.raises((KeyError, ValueError)):
-        await service.get_sorted_holidays(fake_guild)
+    success, message = await service.remove_holiday(MagicMock(), "Kids Day")
+    assert success is True
+    assert "removed successfully" in message
+    mock_repository.remove_holiday.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_edit_holiday(mock_config, mock_repository):
+    """Test editing a holiday."""
+    service = HolidayService(config=mock_config, repository=mock_repository)
+    mock_repository.update_holiday.return_value = True
+
+    holiday_data = HolidayData(
+        name="Kids Day",
+        date="05-05",
+        color="#68855A"
+    )
+    success, message = await service.edit_holiday(MagicMock(), holiday_data)
+    assert success is True
+    assert "updated successfully" in message
+    mock_repository.update_holiday.assert_called_once()

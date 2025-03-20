@@ -1,11 +1,14 @@
+"""Module for formatting weather data into human-readable formats."""
+
 import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
-from datetime import UTC, datetime
-from typing import ClassVar
+from datetime import datetime, timezone
+from typing import Any, ClassVar
 
-from cogs.utilities.llm.llm_utils import create_llm_chain
+from utilities.llm.llm_utils import create_llm_chain
+from utilities.text_formatting_utils import format_row, get_max_widths
 
 logger = logging.getLogger(__name__)
 
@@ -52,18 +55,257 @@ class WeatherFormatterInterface(ABC):
     def format_alerts(self, alerts):
         pass
 
+    @abstractmethod
+    def format_forecast_table(self, forecasts: list[dict[str, Any]], include_condition: bool = False) -> str:
+        """Format a list of forecasts into a table string."""
+
 
 class OpenMeteoFormatter(WeatherFormatterInterface):
+    def __init__(self):
+        # Weather code mapping for OpenMeteo
+        # From https://open-meteo.com/en/docs/
+        self.weather_code_map = {
+            0: {"condition": "Clear sky", "icon": "☀"},
+            1: {"condition": "Mainly clear", "icon": "🌤"},
+            2: {"condition": "Partly cloudy", "icon": "⛅"},
+            3: {"condition": "Overcast", "icon": "☁"},
+            45: {"condition": "Fog", "icon": "🌫"},
+            48: {"condition": "Depositing rime fog", "icon": "🌫"},
+            51: {"condition": "Light drizzle", "icon": "🌦"},
+            53: {"condition": "Moderate drizzle", "icon": "🌦"},
+            55: {"condition": "Dense drizzle", "icon": "🌧"},
+            56: {"condition": "Light freezing drizzle", "icon": "🌨"},
+            57: {"condition": "Dense freezing drizzle", "icon": "🌨"},
+            61: {"condition": "Slight rain", "icon": "🌦"},
+            63: {"condition": "Moderate rain", "icon": "🌧"},
+            65: {"condition": "Heavy rain", "icon": "🌧"},
+            66: {"condition": "Light freezing rain", "icon": "🌨"},
+            67: {"condition": "Heavy freezing rain", "icon": "🌨"},
+            71: {"condition": "Slight snow fall", "icon": "🌨"},
+            73: {"condition": "Moderate snow fall", "icon": "❄"},
+            75: {"condition": "Heavy snow fall", "icon": "❄"},
+            77: {"condition": "Snow grains", "icon": "❄"},
+            80: {"condition": "Slight rain showers", "icon": "🌦"},
+            81: {"condition": "Moderate rain showers", "icon": "🌧"},
+            82: {"condition": "Violent rain showers", "icon": "⛈"},
+            85: {"condition": "Slight snow showers", "icon": "🌨"},
+            86: {"condition": "Heavy snow showers", "icon": "❄"},
+            95: {"condition": "Thunderstorm", "icon": "⛈"},
+            96: {"condition": "Thunderstorm with slight hail", "icon": "⛈"},
+            99: {"condition": "Thunderstorm with heavy hail", "icon": "⛈"}
+        }
+
     def format_individual_forecast(self, weather_data, city_name=None):
-        temperature = weather_data["hourly"]["temperature_2m"][0]
-        condition = "Sunny"  # Map weather codes to conditions
-        if city_name:
-            return f"☀ {city_name}: {condition}, {temperature}°C"
-        return f"{condition}, {temperature}°C"
+        try:
+            # Extract current temperature and weather code
+            current_temp = weather_data["current"]["temperature_2m"]
+            weather_code = weather_data["current"]["weather_code"]
+
+            # Get condition and icon
+            weather_info = self.weather_code_map.get(weather_code, {"condition": "Unknown", "icon": "❓"})
+            condition = weather_info["condition"]
+            icon = weather_info["icon"]
+
+            # Format the result
+            if city_name:
+                return f"{icon} {city_name}: {condition}, {current_temp}°C"
+            return f"{condition}, {current_temp}°C"
+        except (KeyError, TypeError) as e:
+            logger.exception(f"Error formatting weather data for {city_name}: {e!s}")
+            if city_name:
+                return f"{city_name}: Weather data unavailable"
+            return "Weather data unavailable"
 
     def format_alerts(self, alerts):
         # Implement formatting for OpenMeteoAPI alerts
-        pass
+        # OpenMeteo doesn't have alerts, so return a placeholder
+        return "No alerts available (not supported by Open-Meteo)"
+
+    def format_forecast_table(self, forecasts: list[dict[str, Any]], include_condition: bool = False) -> str:
+        """Format a list of forecasts into a table string."""
+        if not forecasts:
+            return ""
+
+        keys = ["ᴄɪᴛʏ", "ʜ°ᴄ", "ʟ°ᴄ", "ᴘʀᴇᴄɪᴘ"]  # noqa: RUF001
+        if include_condition:
+            keys.insert(1, "ᴄᴏɴᴅ")
+
+        # Use mixed alignment: right-align temperature columns, left-align others
+        alignments = []
+        for key in keys:
+            if key in ["ʜ°ᴄ", "ʟ°ᴄ"]:  # Temperature columns are right-aligned
+                alignments.append("right")
+            elif key == "ᴘʀᴇᴄɪᴘ":  # Precipitation needs special handling
+                alignments.append("right")  # Right-align precipitation for consistent % symbol position
+            else:  # Other columns (city, condition) are left-aligned
+                alignments.append("left")
+
+        # Pre-process the forecasts to ensure consistent formatting
+        processed_forecasts = []
+        for forecast in forecasts:
+            processed_forecast = {}
+            for key in keys:
+                if key not in forecast or not forecast[key]:
+                    # Replace missing data with consistent placeholders
+                    if key in ["ʜ°ᴄ", "ʟ°ᴄ"]:
+                        processed_forecast[key] = "-°"  # Consistent format for temperature placeholders
+                    elif key == "ᴘʀᴇᴄɪᴘ":
+                        processed_forecast[key] = "-%"  # Consistent format for precipitation placeholders
+                    else:
+                        processed_forecast[key] = "-"
+                else:
+                    # Remove trailing spaces from values to avoid inconsistent spacing
+                    processed_forecast[key] = forecast[key].rstrip()
+            processed_forecasts.append(processed_forecast)
+
+        # Calculate column widths based on the processed forecasts
+        widths = get_max_widths(processed_forecasts, keys)
+
+        # Special handling for temperature columns
+        temp_keys = [k for k in keys if k in ["ʜ°ᴄ", "ʟ°ᴄ"]]
+        if temp_keys:
+            # 1. Ensure all temperature columns have the same width
+            max_temp_width = max(widths[k] for k in temp_keys)
+
+            # 2. Check if any temperature values are negative
+            has_negative_temp = False
+            for forecast in processed_forecasts:
+                for key in temp_keys:
+                    if key in forecast and "-" in forecast[key]:
+                        has_negative_temp = True
+                        break
+                if has_negative_temp:
+                    break
+
+            # 3. Add extra width to ensure consistent spacing between columns
+            for key in temp_keys:
+                # Make all temperature columns the same width
+                widths[key] = max_temp_width
+
+                # If there are negative values, add extra space to ensure consistent alignment
+                if has_negative_temp:
+                    widths[key] += 1
+
+        # Ensure the precipitation column has enough width for the longest value
+        # Add a consistent width of 2 spaces to create an even column
+        if "ᴘʀᴇᴄɪᴘ" in widths:
+            widths["ᴘʀᴇᴄɪᴘ"] += 2
+
+        # First create the header row
+        header = format_row({k: k for k in keys}, keys, widths, alignments)
+
+        # Format each data row
+        rows = []
+        for forecast in processed_forecasts:
+            row = format_row(forecast, keys, widths, alignments)
+            rows.append(row)
+
+        # Ensure all rows have the same width by removing trailing spaces
+        # and then padding to the maximum width
+        header = header.rstrip()
+        rows = [row.rstrip() for row in rows]
+
+        # Calculate the maximum row width to ensure consistency
+        max_width = max(len(row) for row in [header, *rows])
+
+        # Create final padded rows with exact same width
+        uniform_rows = []
+        header = header + " " * (max_width - len(header))
+
+        for row in rows:
+            padded_row = row + " " * (max_width - len(row))
+            uniform_rows.append(padded_row)
+
+        # Create the final table
+        return header + "\n" + "\n".join(uniform_rows)
+
+    def _extract_forecast_data(self, weather_data, city_name):
+        """Extract relevant data from the OpenMeteo API response and format it for display"""
+        # Clear debug log of incoming data structure
+        logger.debug(f"OpenMeteoFormatter: Processing data for {city_name} with keys: {list(weather_data.keys())}")
+        if "daily" in weather_data:
+            logger.debug(f"OpenMeteoFormatter: Daily data keys: {list(weather_data['daily'].keys())}")
+            logger.debug(f"OpenMeteoFormatter: Number of forecast days: {len(weather_data['daily']['time'])}")
+
+        try:
+            # Initialize result structure with current weather data
+            result = {
+                "city": city_name
+            }
+
+            # Add current weather conditions
+            if "current" in weather_data:
+                current = {}
+                for key in weather_data["current"]:
+                    current[key] = weather_data["current"][key]
+
+                # Get weather condition text for current weather
+                if "weather_code" in current:
+                    weather_code = current["weather_code"]
+                    weather_info = self.weather_code_map.get(weather_code, {"condition": "Unknown", "icon": "❓"})
+                    current["condition"] = weather_info["condition"]
+                    current["icon"] = weather_info["icon"]
+
+                result["current"] = current
+
+            # Add complete daily forecast data (all available days)
+            if "daily" in weather_data:
+                daily = {}
+
+                # Copy all daily data arrays
+                for key in weather_data["daily"]:
+                    daily[key] = weather_data["daily"][key]
+
+                # Add weather condition descriptions for each day
+                if "weather_code" in daily:
+                    conditions = []
+                    icons = []
+                    for code in daily["weather_code"]:
+                        weather_info = self.weather_code_map.get(code, {"condition": "Unknown", "icon": "❓"})
+                        conditions.append(weather_info["condition"])
+                        icons.append(weather_info["icon"])
+                    daily["conditions"] = conditions
+                    daily["icons"] = icons
+
+                result["daily"] = daily
+
+                # Log how many days we're including
+                logger.debug(f"OpenMeteoFormatter: Included {len(daily.get('time', []))} days in forecast for {city_name}")
+
+            # Add a simplified format for compatibility with existing UIs
+            # This uses just the first day of forecast data
+            if "daily" in weather_data:
+                # Get temperature data and round to integers
+                temp_max = round(weather_data["daily"]["temperature_2m_max"][0])
+                temp_min = round(weather_data["daily"]["temperature_2m_min"][0])
+
+                # Get weather code for condition
+                weather_code = weather_data["daily"]["weather_code"][0]
+                weather_info = self.weather_code_map.get(weather_code, {"condition": "Unknown", "icon": "❓"})
+                condition = weather_info["condition"]
+                icon = weather_info["icon"]
+
+                # Add precipitation probability if available
+                precip = None
+                if "precipitation_probability_max" in weather_data["daily"]:
+                    precip = f"{weather_data['daily']['precipitation_probability_max'][0]}%"
+
+                # Add to result as a simplified format for backward compatibility
+                result["temp"] = f"{temp_max}°C"
+                result["high"] = temp_max
+                result["low"] = temp_min
+                result["conditions"] = condition
+                result["icon"] = icon
+                result["precipitation"] = precip
+
+            logger.debug(f"OpenMeteoFormatter: Extracted data for {city_name}: {json.dumps(result)[:200]}...")
+            return result
+        except Exception as e:
+            logger.exception(f"OpenMeteoFormatter: Error extracting data for {city_name}: {e!s}")
+            return {
+                "city": city_name,
+                "error": f"Error extracting forecast data: {e!s}"
+            }
 
 
 class WeatherGovFormatter(WeatherFormatterInterface):
@@ -123,7 +365,7 @@ class WeatherGovFormatter(WeatherFormatterInterface):
             return "Incomplete weather data."
 
         try:
-            now = datetime.now(tz=UTC)
+            now = datetime.now(tz=timezone.utc)
             current_date = now.strftime("%Y-%m-%d")
 
             periods = weather_data["properties"].get("periods", [])
@@ -160,7 +402,7 @@ class WeatherGovFormatter(WeatherFormatterInterface):
                 "current_temp": daytime_period["temperature"],
                 "conditions": daytime_period["detailedForecast"],
                 "wind": daytime_period["windSpeed"],
-                "humidity": daytime_period["relativeHumidity"]["value"],
+                "humidity": daytime_period.get("relativeHumidity", {}).get("value", "N/A"),
                 "uv_index": daytime_period.get("uvIndex", "N/A")
             }
 
@@ -212,6 +454,104 @@ class WeatherGovFormatter(WeatherFormatterInterface):
             logger.exception(f"LLM summary failed after {max_retries} attempts: {e!s}")
             return ""
 
+    def format_forecast_table(self, forecasts: list[dict[str, Any]], include_condition: bool = False) -> str:
+        """Format a list of forecasts into a table string."""
+        if not forecasts:
+            return ""
+
+        keys = ["ᴄɪᴛʏ", "ʜ°ᴄ", "ʟ°ᴄ", "ᴘʀᴇᴄɪᴘ"]  # noqa: RUF001
+        if include_condition:
+            keys.insert(1, "ᴄᴏɴᴅ")
+
+        # Use mixed alignment: right-align temperature columns, left-align others
+        alignments = []
+        for key in keys:
+            if key in ["ʜ°ᴄ", "ʟ°ᴄ"]:  # Temperature columns are right-aligned
+                alignments.append("right")
+            elif key == "ᴘʀᴇᴄɪᴘ":  # Precipitation needs special handling
+                alignments.append("right")  # Right-align precipitation for consistent % symbol position
+            else:  # Other columns (city, condition) are left-aligned
+                alignments.append("left")
+
+        # Pre-process the forecasts to ensure consistent formatting
+        processed_forecasts = []
+        for forecast in forecasts:
+            processed_forecast = {}
+            for key in keys:
+                if key not in forecast or not forecast[key]:
+                    # Replace missing data with consistent placeholders
+                    if key in ["ʜ°ᴄ", "ʟ°ᴄ"]:
+                        processed_forecast[key] = "-°"  # Consistent format for temperature placeholders
+                    elif key == "ᴘʀᴇᴄɪᴘ":
+                        processed_forecast[key] = "-%"  # Consistent format for precipitation placeholders
+                    else:
+                        processed_forecast[key] = "-"
+                else:
+                    # Remove trailing spaces from values to avoid inconsistent spacing
+                    processed_forecast[key] = forecast[key].rstrip()
+            processed_forecasts.append(processed_forecast)
+
+        # Calculate column widths based on the processed forecasts
+        widths = get_max_widths(processed_forecasts, keys)
+
+        # Special handling for temperature columns
+        temp_keys = [k for k in keys if k in ["ʜ°ᴄ", "ʟ°ᴄ"]]
+        if temp_keys:
+            # 1. Ensure all temperature columns have the same width
+            max_temp_width = max(widths[k] for k in temp_keys)
+
+            # 2. Check if any temperature values are negative
+            has_negative_temp = False
+            for forecast in processed_forecasts:
+                for key in temp_keys:
+                    if key in forecast and "-" in forecast[key]:
+                        has_negative_temp = True
+                        break
+                if has_negative_temp:
+                    break
+
+            # 3. Add extra width to ensure consistent spacing between columns
+            for key in temp_keys:
+                # Make all temperature columns the same width
+                widths[key] = max_temp_width
+
+                # If there are negative values, add extra space to ensure consistent alignment
+                if has_negative_temp:
+                    widths[key] += 1
+
+        # Ensure the precipitation column has enough width for the longest value
+        # Add a consistent width of 2 spaces to create an even column
+        if "ᴘʀᴇᴄɪᴘ" in widths:
+            widths["ᴘʀᴇᴄɪᴘ"] += 2
+
+        # First create the header row
+        header = format_row({k: k for k in keys}, keys, widths, alignments)
+
+        # Format each data row
+        rows = []
+        for forecast in processed_forecasts:
+            row = format_row(forecast, keys, widths, alignments)
+            rows.append(row)
+
+        # Ensure all rows have the same width by removing trailing spaces
+        # and then padding to the maximum width
+        header = header.rstrip()
+        rows = [row.rstrip() for row in rows]
+
+        # Calculate the maximum row width to ensure consistency
+        max_width = max(len(row) for row in [header, *rows])
+
+        # Create final padded rows with exact same width
+        uniform_rows = []
+        header = header + " " * (max_width - len(header))
+
+        for row in rows:
+            padded_row = row + " " * (max_width - len(row))
+            uniform_rows.append(padded_row)
+
+        # Create the final table
+        return header + "\n" + "\n".join(uniform_rows)
+
 
 class WeatherFormatter:
     def __init__(self, formatter: WeatherFormatterInterface):
@@ -222,3 +562,12 @@ class WeatherFormatter:
 
     def format_alerts(self, alerts):
         return self.formatter.format_alerts(alerts)
+
+    def format_forecast_table(self, forecasts: list[dict[str, Any]], include_condition: bool = False) -> str:
+        """Format a list of forecasts into a table string."""
+        # Check if Tokyo is in the forecasts and log its format
+        for forecast in forecasts:
+            if isinstance(forecast, dict) and "ᴄɪᴛʏ" in forecast and "Tokyo" in forecast["ᴄɪᴛʏ"]:
+                logger.info(f"Tokyo in format_forecast_table: {forecast}")
+
+        return self.formatter.format_forecast_table(forecasts, include_condition)

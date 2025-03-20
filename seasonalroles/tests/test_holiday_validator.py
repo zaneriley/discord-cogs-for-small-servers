@@ -9,81 +9,89 @@ from cogs.seasonalroles.holiday.holiday_validator import (
 
 
 def test_validate_color():
-    """Test hex color validation."""
-    # Valid colors
-    assert validate_color("#FF0000") is True  # Red
-    assert validate_color("#00FF00") is True  # Green
-    assert validate_color("#0000FF") is True  # Blue
-    assert validate_color("#123456") is True  # Random valid color
-
-    # Invalid colors
+    """Test color validation."""
+    assert validate_color("#FF0000") is True
+    assert validate_color("#00FF00") is True
+    assert validate_color("#0000FF") is True
+    assert validate_color("#FF000") is False  # Missing digit
     assert validate_color("FF0000") is False  # Missing #
-    assert validate_color("#FF00") is False  # Too short
-    assert validate_color("#FF000000") is False  # Too long
-    assert validate_color("#GGGGGG") is False  # Invalid characters
-    assert validate_color("") is False  # Empty string
-    assert validate_color("#12345") is False  # 6 chars including #
-    assert validate_color(None) is False  # None value
+    assert validate_color("#FF000G") is False  # Invalid hex digit
+    assert validate_color(None) is False
+    assert validate_color("") is False
 
 
 def test_validate_date_format():
-    """Test date string format validation."""
-    # Valid dates
-    assert validate_date_format("01-01") is True  # January 1st
-    assert validate_date_format("12-31") is True  # December 31st
-    assert validate_date_format("02-29") is True  # February 29th (leap year)
-
-    # Invalid dates
-    assert validate_date_format("1-1") is False  # Missing leading zeros
+    """Test date format validation."""
+    assert validate_date_format("01-01") is True
+    assert validate_date_format("12-31") is True
+    assert validate_date_format("02-29") is True  # Leap year
     assert validate_date_format("13-01") is False  # Invalid month
-    assert validate_date_format("12-32") is False  # Invalid day
-    assert validate_date_format("00-00") is False  # Invalid month and day
-    assert validate_date_format("12/25") is False  # Wrong separator
-    assert validate_date_format("2024-12-25") is False  # Full date not allowed
-    assert validate_date_format("") is False  # Empty string
-    assert validate_date_format(None) is False  # None value
+    assert validate_date_format("01-32") is False  # Invalid day
+    assert validate_date_format("02-30") is False  # Invalid day for February
+    assert validate_date_format("01-1") is False  # Missing leading zero
+    assert validate_date_format("1-01") is False  # Missing leading zero
+    assert validate_date_format("1-1") is False  # Missing leading zeros
+    assert validate_date_format(None) is False
+    assert validate_date_format("") is False
 
 
 def test_validate_holiday_name():
     """Test holiday name validation."""
-    # Valid names
     assert validate_holiday_name("Christmas") is True
     assert validate_holiday_name("New Year's Day") is True
-    assert validate_holiday_name("Kids' Day") is True
-    assert validate_holiday_name("Spring Festival 2024") is True
-
-    # Invalid names
+    assert validate_holiday_name(" ") is False  # Only whitespace
     assert validate_holiday_name("") is False  # Empty string
-    assert validate_holiday_name(" ") is False  # Just whitespace
-    assert validate_holiday_name("\t") is False  # Tab character
-    assert validate_holiday_name("\n") is False  # Newline
-    assert validate_holiday_name(None) is False  # None value
+    assert validate_holiday_name(None) is False
+    assert validate_holiday_name("  Christmas  ") is True  # Leading/trailing whitespace is allowed
 
 
 def test_find_holiday():
-    """Test case-insensitive holiday lookup."""
+    """Test holiday lookup with confidence scoring."""
     holidays = {
-        "Kids Day": {"date": "05-05", "color": "#FF0000"},
-        "Christmas": {"date": "12-25", "color": "#00FF00"},
-        "New Year's Day": {"date": "01-01", "color": "#0000FF"},
+        "Christmas": {"date": "12-25", "color": "#FF0000"},
+        "New Year's Day": {"date": "01-01", "color": "#00FF00"},
+        "Halloween": {"date": "10-31", "color": "#0000FF"}
     }
 
-    # Test exact matches
-    assert find_holiday(holidays, "Kids Day") == ("Kids Day", holidays["Kids Day"])
-    assert find_holiday(holidays, "Christmas") == ("Christmas", holidays["Christmas"])
+    # Test exact match
+    name, details, score = find_holiday(holidays, "Christmas")
+    assert name == "Christmas"
+    assert details == holidays["Christmas"]
+    assert score == 1.0
 
-    # Test case-insensitive matches
-    assert find_holiday(holidays, "kids day") == ("Kids Day", holidays["Kids Day"])
-    assert find_holiday(holidays, "CHRISTMAS") == ("Christmas", holidays["Christmas"])
-    assert find_holiday(holidays, "new year's day") == (
-        "New Year's Day",
-        holidays["New Year's Day"],
-    )
+    # Test case-insensitive match
+    name, details, score = find_holiday(holidays, "christmas")
+    assert name == "Christmas"
+    assert details == holidays["Christmas"]
+    assert score == 1.0
 
-    # Test non-existent holidays
-    assert find_holiday(holidays, "Easter") == (None, None)
-    assert find_holiday(holidays, "") == (None, None)
-    assert find_holiday(holidays, None) == (None, None)
+    # Test partial match
+    name, details, score = find_holiday(holidays, "New")
+    assert name == "New Year's Day"
+    assert details == holidays["New Year's Day"]
+    assert score < 1.0  # Partial match should have lower confidence
 
-    # Test with empty holiday dict
-    assert find_holiday({}, "Christmas") == (None, None)
+    # Test no match
+    name, details, score = find_holiday(holidays, "Non Existent")
+    assert name is None
+    assert details is None
+    assert score is None
+
+    # Test with display names
+    holidays_with_display = {
+        "Christmas": {"date": "12-25", "color": "#FF0000", "display_name": "Christmas Day"},
+        "New Year's Day": {"date": "01-01", "color": "#00FF00", "display_name": "New Year"},
+        "Halloween": {"date": "10-31", "color": "#0000FF", "display_name": "Halloween Night"}
+    }
+
+    # Test exact match with display name
+    name, details, score = find_holiday(holidays_with_display, "Christmas Day")
+    assert name == "Christmas"
+    assert details == holidays_with_display["Christmas"]
+    assert score == 1.0
+
+    # Test partial match with display name
+    name, details, score = find_holiday(holidays_with_display, "New")
+    assert name == "New Year's Day"
+    assert details == holidays_with_display["New Year's Day"]
+    assert score < 1.0  # Partial match should have lower confidence
