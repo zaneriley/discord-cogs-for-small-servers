@@ -4,7 +4,7 @@ import asyncio
 import json  # Import json
 import logging
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path  # Import Path
 
 import discord
@@ -12,6 +12,8 @@ import pytz
 from discord import app_commands
 from discord.ext import tasks
 from redbot.core import commands
+from redbot.core import Config
+from redbot.core.bot import Red
 
 # Check if .env file exists and load it if python-dotenv is available
 try:
@@ -19,15 +21,24 @@ try:
     # Look for .env in project root
     env_path = Path(__file__).parent.parent.parent / ".env"
     if env_path.exists():
-        logging.info("Loading environment variables from %s", env_path)
+        logging.info("[WeatherChannel] Loading environment variables from %s", env_path)
         load_dotenv(dotenv_path=env_path)
     else:
-        logging.warning("No .env file found at %s", env_path)
+        logging.warning("[WeatherChannel] No .env file found at %s", env_path)
 except ImportError:
-    logging.warning("python-dotenv not installed, skipping .env loading in weatherchannel")
+    logging.warning("[WeatherChannel] python-dotenv not installed, skipping .env loading in weatherchannel")
 
+# Try to import LLM utilities - fallback gracefully if they're not available
+try:
+    from cogs.utilities.llm.llm_utils import create_llm_chain
+except ImportError:
+    logging.exception("[WeatherChannel] Could not import create_llm_chain - LLM features will be disabled")
+    # Define a fallback function that returns None
+    def create_llm_chain():
+        logging.warning("[WeatherChannel] Using fallback create_llm_chain")
 
 from .config import ConfigManager
+from .weather_report import WeatherReportService
 from .weather_service import WeatherService
 
 logger = logging.getLogger(__name__)
@@ -35,18 +46,73 @@ logger = logging.getLogger(__name__)
 # Define constants
 MAX_DISCORD_MESSAGE_LENGTH = 1900  # Maximum length for code blocks in Discord messages
 
+def raise_missing_env_var(message):
+    """Raise a ValueError with a descriptive message.
+    
+    This function centralizes the logic for raising errors about missing
+    environment variables, making the code more maintainable.
+    
+    Args:
+        message: The error message to include
+        
+    Raises:
+        ValueError: Always raised with the provided message
+    """
+    raise ValueError(message)
+
 class WeatherChannel(commands.Cog):
 
     """A cog for reporting weather conditions."""
 
-    def __init__(self, bot):
+    def __init__(self, bot: Red):
         self.bot = bot
-        logger.info("WeatherChannel cog initializing...")
-        self.guild_id = int(os.getenv("GUILD_ID"))
+        logger.info("[WeatherChannel] Cog initializing...")
+
+        # Check if critical environment variables are set
+        try:
+            guild_id = os.getenv("GUILD_ID")
+            if not guild_id:
+                logger.error("[WeatherChannel] Missing GUILD_ID environment variable")
+                raise_missing_env_var("GUILD_ID environment variable is required")
+            self.guild_id = int(guild_id)
+            logger.debug("[WeatherChannel] Guild ID: %s", self.guild_id)
+        except (ValueError, TypeError) as e:
+            logger.exception("[WeatherChannel] Failed to parse GUILD_ID")
+            raise
+
+        # Log environment for LLM services
+        logger.debug("[WeatherChannel] Environment check - OPENAI_API_KEY: %s, ANTHROPIC_API_KEY: %s",
+                   "Set" if os.getenv("OPENAI_API_KEY") else "Not set",
+                   "Set" if os.getenv("ANTHROPIC_API_KEY") else "Not set")
+
         self.strings = self.load_strings()  # Load strings first so WeatherService can use them
-        self.weather_service = WeatherService(self.strings)  # Pass strings to WeatherService
+        logger.debug("[WeatherChannel] Loaded %d string entries", len(self.strings))
+        self.weather_service = WeatherService(self.strings, config=ConfigManager(Config.get_conf(self, identifier=12345678)))
         self.config_manager = ConfigManager(self.guild_id, self)
         self.api_handlers = {}  # Initialize the api_handlers dictionary - also likely not needed here, service handles it.
+
+        # Create LLM chain for weather narratives
+        try:
+            logger.debug("[WeatherChannel] Creating LLM chain...")
+            self.llm_chain = create_llm_chain()
+            # Log provider details for debugging
+            llm_providers = [type(node[1]).__name__ for node in self.llm_chain.nodes] if self.llm_chain and hasattr(self.llm_chain, "nodes") else []
+            logger.debug("[WeatherChannel] LLM chain created with providers: %s", llm_providers)
+
+            # Create weather report service with LLM support
+            self.weather_report_service = WeatherReportService(
+                weather_service=self.weather_service,
+                llm_provider=self.llm_chain.nodes[0][1] if self.llm_chain and hasattr(self.llm_chain, "nodes") and self.llm_chain.nodes else None
+            )
+            logger.info("[WeatherChannel] Weather report service initialized with LLM support")
+        except Exception:
+            logger.exception("[WeatherChannel] Failed to initialize LLM chain")
+            # Create weather report service without LLM support
+            self.weather_report_service = WeatherReportService(
+                weather_service=self.weather_service,
+                llm_provider=None
+            )
+            logger.warning("[WeatherChannel] Weather report service initialized without LLM support")
 
         # Added tracking variables for scheduler status
         self.next_forecast_time = None
@@ -55,7 +121,7 @@ class WeatherChannel(commands.Cog):
         self.last_forecast_success = None
 
         self.on_forecast_task_complete.start()
-        logger.info("WeatherChannel cog initialized. Registered commands: %s",
+        logger.info("[WeatherChannel] Cog initialized. Registered commands: %s",
                    [c.name for c in self.weather.commands])
 
 
@@ -99,8 +165,8 @@ class WeatherChannel(commands.Cog):
             await self.forecast_task()
             self.last_forecast_time = datetime.now(pytz.utc)
             self.last_forecast_success = True
-        except Exception as e:
-            logger.exception("Error during forecast task: %s", str(e))
+        except Exception:
+            logger.exception("Error during forecast task")
             self.last_forecast_time = datetime.now(pytz.utc)
             self.last_forecast_success = False
 
@@ -124,6 +190,7 @@ class WeatherChannel(commands.Cog):
     Basic commands:
     • /weather current - View current weather for all or a specific location
     • /weather summary - Generate an AI summary of weather conditions
+    • /weather report - Create a narrative weather report for all cities
     • /weather schedule - Check when the next weather forecast is scheduled
 
     Admin commands:
@@ -169,6 +236,7 @@ class WeatherChannel(commands.Cog):
             )
             embed.add_field(name="!weather current [city]", value="Get current weather information", inline=False)
             embed.add_field(name="!weather summary [city]", value="Generate an AI summary of weather conditions", inline=False)
+            embed.add_field(name="!weather report", value="Create a narrative weather report for all cities", inline=False)
             embed.add_field(name="!weather schedule", value="Check when the next weather forecast is scheduled", inline=False)
             embed.add_field(name="!weather raw [city]", value="Get raw weather data for debugging", inline=False)
             embed.add_field(name="!weather set channel [#channel]", value="Set the channel for daily weather updates (Admin only)", inline=False)
@@ -367,7 +435,7 @@ class WeatherChannel(commands.Cog):
 
     @weather_group.command(
         name="summary",
-        aliases=["sum", "report"],
+        aliases=["sum"],
         description="Generate an AI-powered natural language summary of weather conditions"
     )
     async def weather_summary_text_command(self, ctx, city: str = "Everywhere"):
@@ -454,9 +522,9 @@ class WeatherChannel(commands.Cog):
             await ctx.send(
                 f"**Weather Summary:**\n{summary}\n\n*Data preview:*\n```\n{consolidated_data}\n```"
             )
-        except Exception as e:
-            logger.exception("Error generating weather summary: %s", str(e))
-            await ctx.send(f"An error occurred while generating the weather summary: {e!s}")
+        except Exception:
+            logger.exception("Error generating weather summary")
+            await ctx.send("An error occurred while generating the weather summary.")
 
     def _get_condition_text(self, data):
         """Extract weather condition text from OpenMeteo data."""
@@ -494,7 +562,7 @@ class WeatherChannel(commands.Cog):
         return [choice for choice in choices if current.lower() in choice.name.lower()]
 
     async def forecast_task(self):
-        int(datetime.now(tz=UTC).timestamp())
+        int(datetime.now(tz=timezone.utc).timestamp())
 
         default_locations = await self.config_manager.get_default_locations(self.guild_id)
         if not default_locations:
@@ -724,3 +792,105 @@ class WeatherChannel(commands.Cog):
             )
 
         await ctx.send(embed=embed)
+
+    @weather.command(
+        name="report",
+        description="Generate a narrative weather report for all configured cities"
+    )
+    async def weather_report_slash_command(self, interaction: discord.Interaction):
+        """
+        Generate a narrative weather report for all configured cities (slash command version).
+
+        This command uses LLM to generate a conversational weather report
+        that integrates data from all configured cities.
+
+        Parameters
+        ----------
+        interaction
+            The Discord interaction
+
+        """
+        logger.info("Command weather report (slash) invoked by %s", interaction.user)
+        ctx = await commands.Context.from_interaction(interaction)
+        await self._weather_report_logic(ctx)
+
+    @weather_group.command(
+        name="report",
+        aliases=["narrative"],
+        description="Generate a narrative weather report for all configured cities"
+    )
+    async def weather_report_text_command(self, ctx):
+        """
+        Generate a narrative weather report for all configured cities (text command version).
+
+        This command uses LLM to generate a conversational weather report
+        that integrates data from all configured cities.
+
+        Parameters
+        ----------
+        ctx
+            The command context
+
+        """
+        logger.info("Command weather report (text) invoked by %s", ctx.author)
+        await self._weather_report_logic(ctx)
+
+    async def _weather_report_logic(self, ctx):
+        """
+        Shared logic for weather report commands.
+
+        This method leverages the weather_report_service to gather data across all cities
+        and process it through an LLM to generate a natural language narrative report.
+
+        Parameters
+        ----------
+        ctx
+            The command context
+
+        """
+        logger.debug("[WeatherChannel] Weather report requested by %s in guild %s",
+                    ctx.author, ctx.guild.id)
+        await ctx.send("Generating weather report, please wait...")
+
+        # Retrieve default locations
+        default_locations = await self.config_manager.get_default_locations(self.guild_id)
+        logger.debug("[WeatherChannel] Generating report for %d configured locations",
+                    len(default_locations))
+
+        if not default_locations:
+            logger.warning("[WeatherChannel] No locations configured for guild %s", ctx.guild.id)
+            await ctx.send("No locations configured. Please add locations first.")
+            return
+
+        try:
+            # Generate the weather narrative report
+            logger.debug("[WeatherChannel] Calling weather_report_service.generate_weather_summary()")
+            report = await self.weather_report_service.generate_weather_summary(default_locations)
+
+            if not report:
+                if not self.weather_report_service.llm_provider:
+                    logger.warning("[WeatherChannel] No LLM provider available, cannot generate narrative")
+                    await ctx.send("Unable to generate weather report: LLM provider not available.")
+                else:
+                    logger.error("[WeatherChannel] Failed to generate report despite having LLM provider")
+                    await ctx.send("Unable to generate weather report. Please try again later.")
+                return
+
+            # Create a nice embed for the report
+            logger.debug("[WeatherChannel] Successfully generated report (%d characters)", len(report))
+            embed = discord.Embed(
+                title="📊 Weather Report",
+                description=report,
+                color=discord.Color.blue()
+            )
+
+            # Add timestamp
+            current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            embed.set_footer(text=f"Generated on {current_time}")
+
+            await ctx.send(embed=embed)
+            logger.info("[WeatherChannel] Weather report sent to channel %s", ctx.channel.id)
+
+        except Exception:
+            logger.exception("[WeatherChannel] Error generating weather report")
+            await ctx.send("An error occurred while generating the weather report.")
