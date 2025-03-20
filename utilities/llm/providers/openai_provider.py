@@ -4,7 +4,17 @@ from pathlib import Path
 
 import aiohttp
 
-from utilities.llm.config import LLMConfig
+# Handle imports to work both locally and in Docker
+try:
+    # First try the Docker path
+    from utilities.llm.config import LLMConfig
+except ImportError:
+    try:
+        # If that fails, try the local path relative to providers directory
+        from ..config import LLMConfig
+    except ImportError:
+        # Last resort - try the full absolute path
+        from cogs.utilities.llm.config import LLMConfig
 
 from .base import BaseLLMProvider, LLMResponse
 
@@ -17,22 +27,36 @@ class OpenAIProvider(BaseLLMProvider):
         self.endpoint = "https://api.openai.com/v1/chat/completions"
 
         if not self.api_key:
-            # Log available environment variables to help diagnose the issue
-            env_vars = {k: "***" if "KEY" in k else v for k, v in os.environ.items()}
-            logger.error("OpenAI API key not found in environment variables.")
-            logger.debug("Current environment variables: %s", env_vars)
+            # Check if we can load directly from environment
+            self.api_key = os.environ.get("OPENAI_API_KEY", "")
 
-            # Check if .env file exists
-            env_path = Path(__file__).parent.parent.parent.parent.parent / ".env"
-            if env_path.exists():
-                logger.info(".env file exists at %s", env_path)
-            else:
-                logger.warning("No .env file found at expected path: %s", env_path)
+            if not self.api_key:
+                # Log available environment variables to help diagnose the issue (without showing key values)
+                env_keys = list(os.environ.keys())
+                logger.error("[OpenAI] API key not found in environment variables.")
+                logger.debug("[OpenAI] Available environment variables: %s",
+                            ", ".join([k for k in env_keys if not any(secret in k.upper() for secret in ["KEY", "TOKEN", "SECRET", "PASS"])]))
+
+                # Check if .env file exists
+                env_path = Path(__file__).parent.parent.parent.parent.parent / ".env"
+                if env_path.exists():
+                    logger.info("[OpenAI] .env file exists at %s", env_path)
+                    # Try to load directly
+                    try:
+                        from dotenv import load_dotenv
+                        load_dotenv(dotenv_path=env_path)
+                        self.api_key = os.environ.get("OPENAI_API_KEY", "")
+                        if self.api_key:
+                            logger.info("[OpenAI] Successfully loaded API key from .env file")
+                    except ImportError:
+                        logger.warning("[OpenAI] python-dotenv not installed, can't load from .env file")
+                else:
+                    logger.warning("[OpenAI] No .env file found at expected path: %s", env_path)
 
     async def send_prompt(self, prompt: str, **kwargs) -> LLMResponse:
         if not self.api_key:
             error_msg = "OpenAI API key not configured. Set OPENAI_API_KEY environment variable in your .env file."
-            logger.error(error_msg)
+            logger.error("[OpenAI] %s", error_msg)
             return LLMResponse(
                 content="",
                 tokens_used=0,
@@ -57,4 +81,5 @@ class OpenAIProvider(BaseLLMProvider):
                     tokens_used = data.get("usage", {}).get("total_tokens", 0)
                     return LLMResponse(content=content, tokens_used=tokens_used)
         except Exception as e:
+            logger.exception("[OpenAI] Error calling API: %s", str(e))
             return LLMResponse(content="", tokens_used=0, error=True, error_message=str(e))
